@@ -4,7 +4,7 @@
  */
 
 import { startCamera, stopCamera, isCameraActive, showError, hideError, getVideoStream } from "./camera.js";
-import { bindVideo, updateTracks, draw, onResize, clearTracks } from "./face-overlay.js";
+import { bindVideo, updateTracks, draw, onResize, clearTracks } from "./face-overlay.js?v=2";
 import { startMic, stopMic, isMicRecording, hideMicError, getMicSessionId } from "./audio.js";
 import { startVoiceSession, stopVoiceSession, isVoiceConnected, summarizeSession } from "./conversation.js";
 import { initPeople } from "./people.js";

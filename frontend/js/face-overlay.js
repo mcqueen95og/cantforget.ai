@@ -99,9 +99,6 @@ function draw() {
   const cw = canvas.width;
   const ch = canvas.height;
 
-  ctx.lineWidth = 4;
-  ctx.font = "700 18px system-ui, sans-serif";
-
   for (const [id, t] of tracks) {
     // Interpolate current position toward target.
     t.x += (t.tx - t.x) * SMOOTH;
@@ -114,45 +111,148 @@ function draw() {
     const w = t.w * cw;
     const h = t.h * ch;
 
-    const { text, color } = describe(t.identity);
-    ctx.strokeStyle = color;
-    ctx.strokeRect(x, y, w, h);
-
     // Fade out slightly while persisting without detection.
     const alpha = t.persist === 0 ? 1 : Math.max(0.5, 1 - t.persist * 0.08);
-    ctx.globalAlpha = alpha;
 
-    const textWidth = ctx.measureText(text).width;
-    const pad = 8;
-    const labelH = 30;
-    const ly = y - labelH - 2 < 0 ? y + 2 : y - labelH - 2;
-
-    ctx.fillStyle = color;
-    ctx.fillRect(x, ly, textWidth + pad * 2, labelH);
-    ctx.fillStyle = "#000000";
-    ctx.fillText(text, x + pad, ly + labelH - 9);
-    ctx.globalAlpha = 1;
+    drawPersonCard(x, y, w, h, t.identity, alpha);
   }
 }
 
-// What to show for each recognition status. Only a confident match shows a
-// name. Temporary track IDs are never shown: they are not identities.
+// --------------------------------------------------------------- person card
+
+const CARD_WIDTH = 240;
+const CARD_PAD_X = 14;
+const CARD_PAD_Y = 12;
+const TITLE_FONT = "600 20px Georgia, 'Palatino Linotype', serif";
+const ROLE_FONT = "500 12px Georgia, 'Palatino Linotype', serif";
+const DESC_FONT = "400 13px Georgia, 'Palatino Linotype', serif";
+const DESC_LINE_H = 18;
+
+function roundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function wrapText(text, maxW, maxLines) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let line = "";
+  for (const word of words) {
+    const test = line ? line + " " + word : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  return lines.slice(0, maxLines);
+}
+
+// What to show on the card. Only a confident match shows a name and profile;
+// temporary track IDs are never shown: they are not identities.
 function describe(identity) {
-  switch (identity.status) {
-    case "recognized":
-      return { text: identity.tag ? `${identity.name} · ${identity.tag}` : identity.name, color: "#ffffff" };
-    case "new_face":
-      return { text: "New face - register?", color: "#bdbdbd" };
-    case "unknown":
-      return { text: "Not sure who this is", color: "#a8a8a8" };
-    case "uncertain":
-      return { text: "Not sure who this is", color: "#8a8a8a" };
-    case "recognition_unavailable":
-      return { text: "Face detected", color: "#a8a8a8" };
-    default:
-      return { text: "Looking...", color: "#8a8a8a" };
+  if (identity && identity.status === "recognized" && identity.name) {
+    return {
+      title: identity.name,
+      role: identity.tag || "",
+      description: identity.description || "",
+    };
   }
+  return { title: "Unknown Person", role: "", description: "" };
 }
+
+/**
+ * Draw a translucent rounded info card right next to a face:
+ *   heading = person name, small rounded tab with their role next to it,
+ *   and the description/summary underneath.
+ * Unrecognised faces get a card titled "Unknown Person".
+ */
+function drawPersonCard(fx, fy, fw, fh, identity, alpha) {
+  const { title, role, description } = describe(identity);
+
+  // ---- measure ----
+  ctx.font = TITLE_FONT;
+  const titleW = ctx.measureText(title).width;
+  let roleW = 0;
+  if (role) {
+    ctx.font = ROLE_FONT;
+    roleW = ctx.measureText(role).width + 16; // pill padding
+  }
+  const textW = CARD_WIDTH - CARD_PAD_X * 2;
+  let descLines = [];
+  if (description) {
+    ctx.font = DESC_FONT;
+    descLines = wrapText(description, textW, 3);
+  }
+
+  const headerH = 26;
+  const descH = descLines.length ? descLines.length * DESC_LINE_H + 4 : 0;
+  const cardH = CARD_PAD_Y * 2 + headerH + descH;
+
+  // ---- position: to the right of the face, flipped left when overflowing ----
+  let cx = fx + fw + 14;
+  if (cx + CARD_WIDTH > canvas.width - 10) cx = fx - CARD_WIDTH - 14;
+  if (cx < 10) cx = Math.max(10, Math.min(canvas.width - CARD_WIDTH - 10, fx));
+  let cy = fy;
+  if (cy + cardH > canvas.height - 10) cy = canvas.height - cardH - 10;
+  if (cy < 10) cy = 10;
+
+  // ---- card body (semi-transparent) ----
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
+  roundRect(ctx, cx, cy, CARD_WIDTH, cardH, 16);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // ---- heading: name, with the role tab right next to it ----
+  ctx.font = TITLE_FONT;
+  ctx.fillStyle = "#ffffff";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText(title, cx + CARD_PAD_X, cy + CARD_PAD_Y + 18);
+  const titleEnd = cx + CARD_PAD_X + titleW;
+
+  if (role) {
+    ctx.font = ROLE_FONT;
+    const pw = roleW;
+    const ph = 20;
+    let px = titleEnd + 8;
+    if (px + pw > cx + CARD_WIDTH - CARD_PAD_X) {
+      px = cx + CARD_WIDTH - CARD_PAD_X - pw;
+    }
+    if (px >= titleEnd + 4) {
+      const py = cy + CARD_PAD_Y + 1;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+      roundRect(ctx, px, py, pw, ph, 10);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.fillText(role, px + 8, py + 14);
+    }
+  }
+
+  // ---- description / summary underneath ----
+  if (descLines.length) {
+    ctx.font = DESC_FONT;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+    let dy = cy + CARD_PAD_Y + headerH + 6;
+    for (const line of descLines) {
+      ctx.fillText(line, cx + CARD_PAD_X, dy);
+      dy += DESC_LINE_H;
+    }
+  }
+
+  ctx.globalAlpha = 1;
+}
+
+// (describe/drawPersonCard live above; the overlay shows only the card.)
 
 function onResize(videoEl) {
   bindVideo(videoEl);
