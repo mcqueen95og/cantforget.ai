@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ForgetMeNot — Face &amp; Voice</title>
+  <link rel="stylesheet" href="/static/css/main.css?v=10" />
+</head>
+<body>
+  <div class="app">
+    <header class="header">
+      <h1>ForgetMeNot</h1>
+      <span class="phase-badge">Face &amp; Voice</span>
+    </header>
+
+    <main class="main">
+      <section class="camera-panel">
+        <div class="video-wrap">
+          <video id="localVideo" autoplay playsinline muted></video>
+          <canvas id="overlayCanvas" class="overlay"></canvas>
+          <div id="cameraStatus" class="status status--idle">Camera stopped</div>
+          <div id="micStatus" class="status status--idle">Microphone stopped</div>
+          <div id="errorBox" class="error-box hidden"></div>
+        </div>
+
+        <div class="controls">
+          <button id="startCameraBtn" class="btn btn--primary">Start Camera</button>
+          <button id="stopCameraBtn" class="btn btn--danger" disabled>Stop Camera</button>
+          <button id="startMicBtn" class="btn btn--primary" disabled>Start Mic</button>
+          <button id="stopMicBtn" class="btn btn--danger" disabled>Stop Mic</button>
+        </div>
+
+        <div class="hints">
+          <div class="metric">
+            <span class="metric-label">FPS</span>
+            <span id="fpsDisplay" class="metric-value">--</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Faces</span>
+            <span id="faceCountDisplay" class="metric-value">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Detect (ms)</span>
+            <span id="detectMsDisplay" class="metric-value">--</span>
+          </div>
+        </div>
+      </section>
+
+      <aside class="info-panel">
+        <nav class="panel-tabs" id="panelTabs">
+          <button class="panel-tab active" data-tab="tab-conversation">Conversation</button>
+          <button class="panel-tab" data-tab="tab-people">People</button>
+          <button class="panel-tab" data-tab="tab-history">History</button>
+        </nav>
+
+        <div class="tab-page" id="tab-conversation">
+          <div id="transcriptList" class="transcript-list">
+            <div class="transcript-empty">Start the microphone to see conversation.</div>
+          </div>
+          <div id="speakerStats" class="speaker-stats"></div>
+
+          <h2>Key points</h2>
+          <div id="keyPointsList" class="key-points-list">
+            <div class="key-points-empty">Live key points appear here while you talk.</div>
+          </div>
+        </div>
+
+        <div class="tab-page hidden" id="tab-people">
+          <h2>Registered People</h2>
+          <div id="peopleList" class="people-list">
+            <div class="empty">Loading...</div>
+          </div>
+
+          <details class="add-person">
+            <summary>Add a person from photos</summary>
+            <form id="addPersonForm">
+              <label class="field"><span>Name</span><input name="name" type="text" maxlength="80" required /></label>
+              <label class="field"><span>Tag (e.g. relationship)</span><input name="tag" type="text" maxlength="40" /></label>
+              <label class="field"><span>Short description</span><textarea name="description" rows="2" maxlength="500"></textarea></label>
+              <label class="field"><span>Photos (one clear face each)</span><input name="photos" type="file" accept="image/*" multiple required /></label>
+              <label class="consent">
+                <input name="consent" type="checkbox" required />
+                <span>I have this person's permission, and the user's, to store their face data on this device for recognition.</span>
+              </label>
+              <div id="addPersonMsg" class="form-msg"></div>
+              <button type="submit" class="btn btn--small btn--primary">Register</button>
+            </form>
+          </details>
+        </div>
+
+        <div class="tab-page hidden" id="tab-history">
+          <h2>Conversation History</h2>
+          <div class="key-points-controls">
+            <button id="processConvBtn" class="btn btn--small btn--primary" disabled>Process Conversation</button>
+          </div>
+          <div id="convWindowsList" class="conv-windows-list">
+            <div class="conv-windows-empty">Process the conversation to see windows and summaries.</div>
+          </div>
+
+          <h2>Summaries</h2>
+          <div id="convSummariesList" class="conv-summaries-list">
+            <div class="conv-summaries-empty">No summaries yet.</div>
+          </div>
+
+          <h2>Information Awaiting Approval</h2>
+          <div id="pendingExtractedList" class="pending-extracted-list">
+            <div class="pending-extracted-empty">No information awaiting approval.</div>
+          </div>
+
+          <h2>Participant Memories</h2>
+          <div id="participantMemoriesList" class="participant-memories-list">
+            <div class="participant-memories-empty">No participant memories yet.</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <!-- Person notification card (inspired by the AR overlay demo): a large,
+       readable card that announces who was just recognised. -->
+  <div id="personNotification" class="person-notification hidden" role="status"></div>
+
+  <script type="module" src="/static/js/app.js?v=10"></script>
+  <script type="module" src="/static/js/audio.js?v=6"></script>
+  <script type="module" src="/static/js/conversation.js?v=9"></script>
+  <script type="module" src="/static/js/conversation-intelligence.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+# Runtime dependencies (sqlite3 is in the Python standard library)
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+opencv-python-headless>=4.8.0
+python-multipart>=0.0.9
+numpy>=1.24.0
+
+# Voice: speech-to-text (Whisper) and speaker recognition (3D-Speaker ERes2Net)
+faster-whisper>=1.0.0
+sherpa-onnx>=1.10.0

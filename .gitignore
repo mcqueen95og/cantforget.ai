@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env
+.venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data / models (local SQLite + downloaded ONNX models)
+data/
+data/*.sqlite
+data/*.db
+data/models/*.onnx
+data/models/
+data/models/
+*.onnx
+*.pt
+*.pth
+*.safetensors
+*.ckpt
+*.bin
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+/tmp/uvicorn.log
+
+mongodb/
+data/models/
+
+.venv/
+__pycache__/
+.pytest_cache/
+node_modules/
+.next/
+data/
