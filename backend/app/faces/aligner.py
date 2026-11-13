@@ -18,7 +18,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-logger = logging.getLogger("forgetmenot.faces.aligner")
+logger = logging.getLogger("cantforget.faces.aligner")
 
 # ArcFace/InsightFace reference landmarks for 112x112 aligned face.
 # Order: left_eye, right_eye, nose, left_mouth, right_mouth

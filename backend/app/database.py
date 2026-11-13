@@ -20,7 +20,7 @@ from typing import Optional
 
 from .config import DB_PATH
 
-logger = logging.getLogger("forgetmenot.database")
+logger = logging.getLogger("cantforget.database")
 
 _DB_PATH = Path(DB_PATH)
 

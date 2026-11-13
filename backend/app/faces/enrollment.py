@@ -17,7 +17,7 @@ from .aligner import FaceAligner
 from .recognizer import FaceRecognizer
 from .. import database
 
-logger = logging.getLogger("forgetmenot.faces.enrollment")
+logger = logging.getLogger("cantforget.faces.enrollment")
 
 # Minimum Laplacian variance for a non-blurry face sample.
 MIN_BLUR_VARIANCE = 50.0

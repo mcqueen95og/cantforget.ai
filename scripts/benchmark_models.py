@@ -80,7 +80,7 @@ def bench_recognizer(recognizer, aligner, frame, runs=50):
 
 def main():
     print("=" * 60)
-    print("ForgetMeNot Face Pipeline Benchmark")
+    print("cantforget.ai Face Pipeline Benchmark")
     print("=" * 60)
 
     ram_before = get_process_mb()

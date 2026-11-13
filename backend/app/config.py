@@ -21,7 +21,7 @@ YUNET_NMS_THRESHOLD = float(os.environ.get("YUNET_NMS_THRESHOLD", "0.3"))
 SFACE_MODEL_PATH = os.environ.get(
     "SFACE_MODEL_PATH", str(MODELS_DIR / "face_recognition_sface_2021dec.onnx")
 )
-DB_PATH = os.environ.get("DB_PATH", str(DATA_DIR / "forgetmenot.db"))
+DB_PATH = os.environ.get("DB_PATH", str(DATA_DIR / "cantforget.db"))
 
 # Cosine similarity between SFace embeddings (higher = more similar).
 # A person is only named when the best score >= MATCH_THRESHOLD AND it beats

@@ -21,7 +21,7 @@ from typing import Optional
 
 import numpy as np
 
-logger = logging.getLogger("forgetmenot.database")
+logger = logging.getLogger("cantforget.database")
 
 EMBEDDING_DIM = 128
 VOICE_EMBEDDING_DIM = 512  # 3D-Speaker ERes2Net embedding (audio/diarize.py)

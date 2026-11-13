@@ -1,4 +1,4 @@
-"""ForgetMeNot backend package.
+"""cantforget.ai backend package.
 
 ``app`` is exposed lazily so that the face/identity modules can be imported
 (and unit-tested) without FastAPI installed. ``uvicorn backend.app:app``

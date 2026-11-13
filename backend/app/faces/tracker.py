@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-logger = logging.getLogger("forgetmenot.faces.tracker")
+logger = logging.getLogger("cantforget.faces.tracker")
 
 
 class FaceTrack:

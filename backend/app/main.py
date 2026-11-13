@@ -1,4 +1,4 @@
-"""ForgetMeNot backend -- Phase 2: face detection, recognition and registration.
+"""cantforget.ai backend -- Phase 2: face detection, recognition and registration.
 
 Routes
   GET    /                              frontend
@@ -88,7 +88,7 @@ from .audio.enrollment import (
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 
-logger = logging.getLogger("forgetmenot.backend")
+logger = logging.getLogger("cantforget.backend")
 
 
 class Services:
@@ -173,7 +173,7 @@ async def lifespan(_: FastAPI):
         svc.db.close()
 
 
-app = FastAPI(title="ForgetMeNot — Phase 2: Recognition & Registration", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="cantforget.ai — Phase 2: Recognition & Registration", version="0.2.0", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
@@ -302,9 +302,9 @@ async def v1_models() -> dict:
     return {
         "object": "list",
         "data": [
-            {"id": "forgetmenot-whisper", "object": "model", "owned_by": "forgetmenot"},
-            {"id": "forgetmenot-speaker-eres2net", "object": "model", "owned_by": "forgetmenot"},
-            {"id": "forgetmenot-face-yunet-sface", "object": "model", "owned_by": "forgetmenot"},
+            {"id": "cantforget-whisper", "object": "model", "owned_by": "cantforget.ai"},
+            {"id": "cantforget-speaker-eres2net", "object": "model", "owned_by": "cantforget.ai"},
+            {"id": "cantforget-face-yunet-sface", "object": "model", "owned_by": "cantforget.ai"},
         ],
     }
 

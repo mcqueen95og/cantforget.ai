@@ -16,7 +16,7 @@ import numpy as np
 
 from .onnx_base import OnnxDetector
 
-logger = logging.getLogger("forgetmenot.faces.yunet_detector")
+logger = logging.getLogger("cantforget.faces.yunet_detector")
 
 
 class YuNetDetector(OnnxDetector):

@@ -23,7 +23,7 @@ from .matcher import MATCH, UNCERTAIN, UNKNOWN, Matcher, MatchResult
 from .pending import PendingStore
 from .recognizer import make_thumbnail
 
-logger = logging.getLogger("forgetmenot.faces.identity")
+logger = logging.getLogger("cantforget.faces.identity")
 
 
 class DuplicatePersonError(Exception):

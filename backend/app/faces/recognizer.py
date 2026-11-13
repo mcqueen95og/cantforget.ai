@@ -16,7 +16,7 @@ import numpy as np
 
 from .matcher import normalize
 
-logger = logging.getLogger("forgetmenot.faces.recognizer")
+logger = logging.getLogger("cantforget.faces.recognizer")
 
 
 class FaceRecognizer:

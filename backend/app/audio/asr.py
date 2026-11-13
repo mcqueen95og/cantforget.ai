@@ -15,7 +15,7 @@ from typing import Optional
 import numpy as np
 from faster_whisper import WhisperModel
 
-logger = logging.getLogger("forgetmenot.audio.asr")
+logger = logging.getLogger("cantforget.audio.asr")
 
 # Whisper expects 16 kHz mono audio.
 SAMPLE_RATE = 16000

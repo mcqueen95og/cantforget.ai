@@ -132,8 +132,8 @@ export async function startMic() {
     console.log("[audio] Audio graph connected");
 
     setMicStatus("Microphone live", "live");
-    startBtn.disabled = true;
-    stopBtn.disabled = false;
+    if (startBtn) startBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = false;
     isRecording = true;
   } catch (err) {
     console.error("Audio node setup failed:", err);
@@ -157,8 +157,8 @@ export function stopMic() {
   wsSessionId = null;
   setMicStatus("Mic stopped", "idle");
   setVadActive(false);
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
 }
 
 export function isMicRecording() { return isRecording; }

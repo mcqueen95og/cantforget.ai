@@ -41,7 +41,7 @@ import numpy as np
 from ..db import PeopleDB
 from .summarize import ConversationSummarizer, extract_person_intro
 
-logger = logging.getLogger("forgetmenot.audio.intelligence")
+logger = logging.getLogger("cantforget.audio.intelligence")
 
 # --------------------------------------------------------------------------- config ---
 
@@ -69,7 +69,7 @@ ALLOWED_CATEGORIES = {
     "fact", "interest", "preference", "project", "commitment", "decision",
 }
 
-DEFAULT_MODEL_VERSION = "forgetmenot-intelligence:v1"
+DEFAULT_MODEL_VERSION = "cantforget-intelligence:v1"
 
 
 # --------------------------------------------------------------------------- data ---

@@ -21,7 +21,7 @@ import numpy as np
 from ..db import PeopleDB
 from ..audio.diarize import embed
 
-logger = logging.getLogger("forgetmenot.audio.associate")
+logger = logging.getLogger("cantforget.audio.associate")
 
 
 class VoiceFaceAssociator:

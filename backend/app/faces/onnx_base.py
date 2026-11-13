@@ -13,7 +13,7 @@ from typing import Optional
 import cv2
 import numpy as np
 
-logger = logging.getLogger("forgetmenot.faces.onnx_base")
+logger = logging.getLogger("cantforget.faces.onnx_base")
 
 
 class OnnxDetector:

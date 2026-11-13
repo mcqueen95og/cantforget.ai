@@ -3,7 +3,6 @@
  */
 
 const videoEl = document.getElementById("localVideo");
-const statusEl = document.getElementById("cameraStatus");
 const errorBox = document.getElementById("errorBox");
 
 let stream = null;
@@ -19,8 +18,7 @@ export function hideError() {
   errorBox.classList.add("hidden");
 }
 export function setStatus(text, kind = "idle") {
-  statusEl.textContent = text;
-  statusEl.className = `status status--${kind}`;
+  // Status chips were removed from the UI; kept as a no-op for compatibility.
 }
 
 export async function startCamera() {

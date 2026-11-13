@@ -31,7 +31,7 @@ from ..config import (
     SUMMARIZER_USE_MODEL,
 )
 
-logger = logging.getLogger("forgetmenot.audio.summarize")
+logger = logging.getLogger("cantforget.audio.summarize")
 
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 # Unicode-aware words so summaries also work for non-English conversations.

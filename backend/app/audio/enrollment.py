@@ -19,7 +19,7 @@ from ..db import PeopleDB
 from ..audio.vad import SileroVAD
 from ..audio.diarize import embed
 
-logger = logging.getLogger("forgetmenot.audio.enrollment")
+logger = logging.getLogger("cantforget.audio.enrollment")
 
 
 class VoiceEnrollmentSession:

@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Optional
 
-logger = logging.getLogger("forgetmenot.audio.events")
+logger = logging.getLogger("cantforget.audio.events")
 
 
 class ConversationEventBus:

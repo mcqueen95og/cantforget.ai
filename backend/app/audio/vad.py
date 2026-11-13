@@ -17,7 +17,7 @@ from typing import Optional
 import numpy as np
 import torch
 
-logger = logging.getLogger("forgetmenot.audio.vad")
+logger = logging.getLogger("cantforget.audio.vad")
 
 # Silero VAD expects 16 kHz mono audio.
 SAMPLE_RATE = 16000

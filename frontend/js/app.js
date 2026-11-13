@@ -1,25 +1,42 @@
 /**
- * ForgetMeNot — Face & Voice app
+ * cantforget.ai — Face & Voice app
  * Wires camera + mic + conversation display together.
  */
 
-import { startCamera, stopCamera, isCameraActive, showError, hideError, setStatus, getVideoStream } from "./camera.js";
+import { startCamera, stopCamera, isCameraActive, showError, hideError, getVideoStream } from "./camera.js";
 import { bindVideo, updateTracks, draw, onResize, clearTracks } from "./face-overlay.js";
-import { startMic, stopMic, isMicRecording, setMicStatus, showMicError, hideMicError, setVadActive, getMicSessionId } from "./audio.js";
+import { startMic, stopMic, isMicRecording, hideMicError, getMicSessionId } from "./audio.js";
 import { startVoiceSession, stopVoiceSession, isVoiceConnected, summarizeSession } from "./conversation.js";
 import { initPeople } from "./people.js";
 import { setIntelligenceSession, clearIntelligenceSession } from "./conversation-intelligence.js";
 
-const startBtn = document.getElementById("startCameraBtn");
-const stopBtn = document.getElementById("stopCameraBtn");
-const startMicBtn = document.getElementById("startMicBtn");
-const stopMicBtn = document.getElementById("stopMicBtn");
+const cameraToggleBtn = document.getElementById("cameraToggleBtn");
+const micToggleBtn = document.getElementById("micToggleBtn");
+const menuBtn = document.getElementById("menuBtn");
+const closeMenuBtn = document.getElementById("closeMenuBtn");
+const sidePanel = document.getElementById("sidePanel");
+const sideOverlay = document.getElementById("sideOverlay");
 const fpsEl = document.getElementById("fpsDisplay");
 const faceCountEl = document.getElementById("faceCountDisplay");
 const detectMsEl = document.getElementById("detectMsDisplay");
 const videoEl = document.getElementById("localVideo");
 
-// --- Sidebar tabs (Conversation / People / History) ---
+// --- Side panel drawer (menu button) ---
+function openMenu() {
+  if (!sidePanel) return;
+  sidePanel.classList.add("open");
+  if (sideOverlay) sideOverlay.classList.remove("hidden");
+}
+function closeMenu() {
+  if (!sidePanel) return;
+  sidePanel.classList.remove("open");
+  if (sideOverlay) sideOverlay.classList.add("hidden");
+}
+if (menuBtn) menuBtn.addEventListener("click", openMenu);
+if (closeMenuBtn) closeMenuBtn.addEventListener("click", closeMenu);
+if (sideOverlay) sideOverlay.addEventListener("click", closeMenu);
+
+// --- Panel tabs (Conversation / People / History / Developer) ---
 const tabBar = document.getElementById("panelTabs");
 if (tabBar) {
   const tabs = [...tabBar.querySelectorAll(".panel-tab")];
@@ -31,35 +48,6 @@ if (tabBar) {
       }
     })
   );
-}
-
-// --- Person notification card (AR-demo style) ---
-// When a face is recognised with a name, announce it in a large, readable
-// card at the bottom-right. Auto-dismisses; same person is not repeated
-// within a short cooldown so the card does not flicker.
-const personCard = document.getElementById("personNotification");
-const personNotifyCooldown = new Map(); // person_uid -> timestamp
-let personCardTimer = null;
-
-function showPersonNotification({ name, tag, description }) {
-  if (!personCard || !name) return;
-  personCard.innerHTML = "";
-  const h = document.createElement("h3");
-  h.textContent = name;
-  personCard.appendChild(h);
-  if (tag) {
-    const b = document.createElement("span");
-    b.className = "pn-tag";
-    b.textContent = tag;
-    personCard.appendChild(b);
-  }
-  const p = document.createElement("p");
-  p.className = "pn-desc";
-  p.textContent = description || "Recognised from stored face data.";
-  personCard.appendChild(p);
-  personCard.classList.remove("hidden");
-  clearTimeout(personCardTimer);
-  personCardTimer = setTimeout(() => personCard.classList.add("hidden"), 8000);
 }
 
 const BACKEND_URL = window.location.origin;
@@ -106,22 +94,8 @@ async function detectFrame() {
     const data = await resp.json();
     if (data.ok && Array.isArray(data.faces)) {
       updateTracks(data.faces, data.frame_w || 640, data.frame_h || 480);
-      faceCountEl.textContent = data.faces.length;
-      detectMsEl.textContent = (performance.now() - start).toFixed(0);
-
-      // Announce recognised people (max one card at a time, 30 s cooldown).
-      const now = Date.now();
-      for (const face of data.faces) {
-        const id = face.identity || {};
-        if (id.status === "recognized" && id.person_uid) {
-          const last = personNotifyCooldown.get(id.person_uid) || 0;
-          if (now - last > 30000) {
-            personNotifyCooldown.set(id.person_uid, now);
-            showPersonNotification(id);
-            break;
-          }
-        }
-      }
+      if (faceCountEl) faceCountEl.textContent = data.faces.length;
+      if (detectMsEl) detectMsEl.textContent = (performance.now() - start).toFixed(0);
     }
   } catch (err) {
     console.error("Detection error:", err);
@@ -140,7 +114,7 @@ function loop(timestamp) {
   lastTime = timestamp;
   frameCount++;
   if (timestamp - lastFpsTime >= 1000) {
-    fpsEl.textContent = frameCount.toFixed(0);
+    if (fpsEl) fpsEl.textContent = frameCount.toFixed(0);
     frameCount = 0;
     lastFpsTime = timestamp;
   }
@@ -150,6 +124,20 @@ function loop(timestamp) {
   }
   draw();
   animationId = requestAnimationFrame(loop);
+}
+
+function refreshCameraButton() {
+  if (!cameraToggleBtn) return;
+  const on = isCameraActive();
+  cameraToggleBtn.classList.toggle("on", on);
+  cameraToggleBtn.setAttribute("aria-label", on ? "Turn camera off" : "Turn camera on");
+}
+
+function refreshMicButton() {
+  if (!micToggleBtn) return;
+  const on = isMicRecording();
+  micToggleBtn.classList.toggle("on", on);
+  micToggleBtn.setAttribute("aria-label", on ? "Turn microphone off" : "Turn microphone on");
 }
 
 async function start() {
@@ -163,9 +151,7 @@ async function start() {
   videoEl.addEventListener("loadedmetadata", () => bindVideo(videoEl));
   window.addEventListener("resize", () => onResize(videoEl));
 
-  startBtn.disabled = true;
-  stopBtn.disabled = false;
-  startMicBtn.disabled = false;
+  if (micToggleBtn) micToggleBtn.disabled = false;
 
   lastTime = 0;
   frameCount = 0;
@@ -174,6 +160,7 @@ async function start() {
 
   if (animationId) cancelAnimationFrame(animationId);
   animationId = requestAnimationFrame(loop);
+  refreshCameraButton();
 }
 
 function stop() {
@@ -183,14 +170,11 @@ function stop() {
   stopVoiceSession();
   endVoiceSession(sid);
   clearTracks();
-  faceCountEl.textContent = "0";
-  fpsEl.textContent = "--";
-  detectMsEl.textContent = "--";
+  if (faceCountEl) faceCountEl.textContent = "0";
+  if (fpsEl) fpsEl.textContent = "--";
+  if (detectMsEl) detectMsEl.textContent = "--";
 
-  startBtn.disabled = false;
-  stopBtn.disabled = true;
-  startMicBtn.disabled = true;
-  stopMicBtn.disabled = true;
+  if (micToggleBtn) micToggleBtn.disabled = true;
 
   if (animationId) {
     cancelAnimationFrame(animationId);
@@ -198,39 +182,48 @@ function stop() {
   }
   lastTime = 0;
   lastDetectTime = 0;
+  refreshCameraButton();
+  refreshMicButton();
 }
 
-startBtn.addEventListener("click", start);
-stopBtn.addEventListener("click", stop);
-
-startMicBtn.addEventListener("click", async () => {
-  try {
-    await startMic();
-    startMicBtn.disabled = true;
-    stopMicBtn.disabled = false;
-    // Subscribe to transcription events for the SAME session the audio is sent to.
-    const sid = getMicSessionId();
-    if (sid) {
-      console.log("[app] Starting voice session:", sid);
-      startVoiceSession(sid);
-      setIntelligenceSession(sid);
+if (cameraToggleBtn) {
+  cameraToggleBtn.addEventListener("click", async () => {
+    if (isCameraActive()) {
+      stop();
+    } else {
+      await start();
     }
-  } catch (err) {
-    // startMic already showed an error
-  }
-});
+  });
+}
 
-stopMicBtn.addEventListener("click", async () => {
-  const sid = getMicSessionId();
-  stopMic();
-  stopVoiceSession();
-  endVoiceSession(sid);
-  startMicBtn.disabled = false;
-  stopMicBtn.disabled = true;
-  clearIntelligenceSession();
-  // Auto-summarize the conversation once the mic session ends.
-  try { await summarizeSession(); } catch (_) { /* best effort */ }
-});
+if (micToggleBtn) {
+  micToggleBtn.addEventListener("click", async () => {
+    if (isMicRecording()) {
+      const sid = getMicSessionId();
+      stopMic();
+      stopVoiceSession();
+      endVoiceSession(sid);
+      clearIntelligenceSession();
+      // Auto-summarize the conversation once the mic session ends.
+      try { await summarizeSession(); } catch (_) { /* best effort */ }
+    } else {
+      try {
+        await startMic();
+        // Subscribe to transcription events for the SAME session the audio is sent to.
+        const sid = getMicSessionId();
+        if (sid) {
+          console.log("[app] Starting voice session:", sid);
+          startVoiceSession(sid);
+          setIntelligenceSession(sid);
+        }
+      } catch (err) {
+        // startMic already showed an error
+      }
+    }
+    refreshMicButton();
+  });
+}
+
 window.addEventListener("beforeunload", () => {
   stop();
 });

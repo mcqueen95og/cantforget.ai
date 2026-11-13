@@ -11,7 +11,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-logger = logging.getLogger("forgetmenot.faces.detector")
+logger = logging.getLogger("cantforget.faces.detector")
 
 
 class FaceDetector:

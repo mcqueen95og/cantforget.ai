@@ -48,7 +48,7 @@ from .summarize import (
 )
 from ..db import PeopleDB, EMBEDDING_DIM
 
-logger = logging.getLogger("forgetmenot.audio.pipeline")
+logger = logging.getLogger("cantforget.audio.pipeline")
 
 # Processing cadence and buffer limits.
 POLL_SECONDS = 0.15

@@ -19,7 +19,7 @@ import numpy as np
 
 from ..config import SPEAKER_MODEL_PATH
 
-logger = logging.getLogger("forgetmenot.audio.diarize")
+logger = logging.getLogger("cantforget.audio.diarize")
 
 SAMPLE_RATE = 16000
 

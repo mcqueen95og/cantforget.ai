@@ -129,7 +129,7 @@ function draw() {
 
     ctx.fillStyle = color;
     ctx.fillRect(x, ly, textWidth + pad * 2, labelH);
-    ctx.fillStyle = "#08101e";
+    ctx.fillStyle = "#000000";
     ctx.fillText(text, x + pad, ly + labelH - 9);
     ctx.globalAlpha = 1;
   }
@@ -140,17 +140,17 @@ function draw() {
 function describe(identity) {
   switch (identity.status) {
     case "recognized":
-      return { text: identity.tag ? `${identity.name} · ${identity.tag}` : identity.name, color: "#4ade80" };
+      return { text: identity.tag ? `${identity.name} · ${identity.tag}` : identity.name, color: "#ffffff" };
     case "new_face":
-      return { text: "New face - register?", color: "#4cc2ff" };
+      return { text: "New face - register?", color: "#bdbdbd" };
     case "unknown":
-      return { text: "Not sure who this is", color: "#e2e8f0" };
+      return { text: "Not sure who this is", color: "#a8a8a8" };
     case "uncertain":
-      return { text: "Not sure who this is", color: "#fbbf24" };
+      return { text: "Not sure who this is", color: "#8a8a8a" };
     case "recognition_unavailable":
-      return { text: "Face detected", color: "#e2e8f0" };
+      return { text: "Face detected", color: "#a8a8a8" };
     default:
-      return { text: "Looking...", color: "#fbbf24" };
+      return { text: "Looking...", color: "#8a8a8a" };
   }
 }
 
