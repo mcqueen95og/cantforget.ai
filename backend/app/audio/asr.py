@@ -40,20 +40,21 @@ class WhisperASR:
         model_size: str = "tiny",
         device: str = "cpu",
         compute_type: str = "int8",
+        cpu_threads: int = 4,
     ) -> None:
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self._model: Optional[WhisperModel] = None
-        self._load()
+        self._load(cpu_threads)
 
-    def _load(self) -> None:
+    def _load(self, cpu_threads: int = 4) -> None:
         try:
             self._model = WhisperModel(
                 self.model_size,
                 device=self.device,
                 compute_type=self.compute_type,
-                cpu_threads=2,  # Conservative on i3 dual-core
+                cpu_threads=max(1, cpu_threads),
             )
             logger.info(
                 "Whisper ASR loaded: model=%s device=%s compute=%s",
@@ -90,7 +91,7 @@ class WhisperASR:
             segments, info = self._model.transcribe(
                 audio,
                 language=language,
-                beam_size=1,  # Faster on CPU
+                beam_size=5,  # Beam search: noticeably better accuracy on CPU
                 vad_filter=False,  # We already do VAD separately
                 condition_on_previous_text=False,  # Independent segments
             )
@@ -104,6 +105,23 @@ class WhisperASR:
             for seg in segments:
                 text = (seg.text or "").strip()
                 if not text:
+                    continue
+                # Drop low-quality output: hallucinations on noise/silence
+                # come with a high no-speech probability or a very poor
+                # average log-probability.
+                no_speech = float(getattr(seg, "no_speech_prob", 0.0) or 0.0)
+                avg_logprob = float(getattr(seg, "avg_logprob", 0.0) or 0.0)
+                if no_speech > 0.6 and avg_logprob < -0.7:
+                    logger.debug(
+                        "Skipping low-quality segment (no_speech=%.2f logprob=%.2f): %r",
+                        no_speech, avg_logprob, text[:60],
+                    )
+                    continue
+                if avg_logprob < -1.2:
+                    logger.debug(
+                        "Skipping very low-confidence segment (logprob=%.2f): %r",
+                        avg_logprob, text[:60],
+                    )
                     continue
                 out.append(
                     {

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from typing import Optional
@@ -25,6 +26,7 @@ from ..config import (
     WHISPER_DEVICE,
     WHISPER_COMPUTE_TYPE,
     WHISPER_LANGUAGE,
+    WHISPER_CPU_THREADS,
     DIARIZATION_MAX_SPEAKERS,
     DIARIZATION_MIN_SEGMENT_MS,
     DIARIZATION_THRESHOLD,
@@ -43,6 +45,7 @@ from .events import ConversationEventBus
 from .summarize import (
     ConversationSummarizer,
     LocalModelSummarizer,
+    PersonDescriptionWriter,
     extract_person_intro,
     join_utterances,
 )
@@ -65,18 +68,64 @@ SILENCE_RMS = 0.006
 FALLBACK_PEAK = 0.05
 # Hard cap on retained audio (safety valve for pathological input).
 MAX_BUFFER_SECONDS = 30.0
-# Common Whisper hallucinations on silence/noise.
+# Common Whisper hallucinations on silence/noise (compared lowercase,
+# without punctuation).
 _ARTIFACTS = {
     "",
-    "[blank_audio]",
-    "(silence)",
-    "[silence]",
-    "(music)",
-    "[music]",
-    "thank you.",
-    "thanks for watching!",
-    "thanks for watching.",
+    "blank audio",
+    "silence",
+    "music",
+    "thank you",
+    "thanks for watching",
+    "thank you for watching",
+    "thank you very much",
+    "thanks so much",
+    "please subscribe",
+    "subscribe",
+    "like and subscribe",
+    "bye",
+    "bye bye",
+    "uh",
+    "um",
+    "hmm",
+    "hm",
+    "mm",
+    "mm-hmm",
+    "mhm",
+    "oh",
+    "you",
+    "you.",
+    "hey",
+    "hi",
+    "hello",
+    "im",
+    "i",
+    "am",
+    "and",
+    "the",
+    "a",
+    "to",
+    "it",
+    "is",
+    "so",
+    "but",
+    "that",
+    "this",
 }
+
+
+def _is_artifact(text: str) -> bool:
+    """True for Whisper hallucinations and empty/noise utterances."""
+    cleaned = re.sub(r"[^\w\s'-]", "", (text or ""), flags=re.UNICODE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip().lower()
+    if not cleaned:
+        return True
+    if cleaned in _ARTIFACTS:
+        return True
+    # Not enough real content to be useful (e.g. "..." or "?").
+    if not re.search(r"[a-z0-9\u00c0-\u024f]", cleaned, flags=re.IGNORECASE):
+        return True
+    return False
 
 
 class AudioPipeline:
@@ -126,6 +175,8 @@ class AudioPipeline:
 
         # Live per-speaker summaries.
         self._summarizer: Optional[LocalModelSummarizer] = None
+        # Writes a person's "description" from their conversation points.
+        self._desc_writer: Optional[PersonDescriptionWriter] = None
         self._summary_pending: list[dict] = []
         self._summary_task: Optional[asyncio.Task] = None
         self._summary_lock = asyncio.Lock()
@@ -152,6 +203,7 @@ class AudioPipeline:
                 model_size=WHISPER_MODEL,
                 device=WHISPER_DEVICE,
                 compute_type=WHISPER_COMPUTE_TYPE,
+                cpu_threads=WHISPER_CPU_THREADS,
             )
             if not self._asr.is_loaded():
                 logger.error("ASR not loaded; transcription unavailable")
@@ -163,6 +215,8 @@ class AudioPipeline:
             )
         if self._summarizer is None:
             self._summarizer = LocalModelSummarizer()
+        if self._desc_writer is None:
+            self._desc_writer = PersonDescriptionWriter()
         if self._associator is None:
             self._associator = VoiceFaceAssociator(
                 db=self.db,
@@ -531,7 +585,7 @@ class AudioPipeline:
 
         for sentence in sentences:
             text = (sentence.get("text") or "").strip()
-            if not text or text.lower() in _ARTIFACTS:
+            if not text or _is_artifact(text):
                 continue
             local_start_ms = float(sentence.get("start_ms") or 0.0)
             local_end_ms = float(sentence.get("end_ms") or 0.0)
@@ -1034,3 +1088,53 @@ class AudioPipeline:
                 "Pipeline: summary [%s] %s -> %d point(s) (%s)",
                 self.session_id, speaker_id, len(points), model_version,
             )
+
+            # Keep the person's profile description in step with the
+            # conversation: rewrite "Introduced by voice: ..." style text
+            # with what they actually talked about.
+            if identity_uid:
+                await self._refresh_person_description(identity_uid)
+
+    async def _refresh_person_description(self, uid: str) -> None:
+        """Rewrite a person's description from their session key points."""
+        if not uid or self._desc_writer is None:
+            return
+        # Collect this person's points from every label they were known by
+        # during the session: their uid, and any temporary speaker label
+        # that was later linked to them (the link may have happened after
+        # some points were already emitted).
+        points_by_text: dict[str, str] = {}
+        for key, seen in self._summary_seen.items():
+            if key != uid:
+                linked = self.db.get_speaker_identity(self.session_id, key)
+                if linked != uid:
+                    continue
+            for p in seen:
+                points_by_text.setdefault(p, p)
+        points = list(points_by_text.values())[-3:]
+        if not points:
+            return
+        try:
+            person = self.db.get_person(uid)
+            if not person:
+                return
+            desc = await asyncio.to_thread(
+                self._desc_writer.write, person.get("name") or "", points
+            )
+            desc = (desc or "").strip()
+            if not desc or desc == (person.get("description") or "").strip():
+                return
+            self.db.update_person(uid, person["name"], person.get("tag") or "", desc)
+            logger.info(
+                "Pipeline: description for %s (%s) -> %r",
+                uid, person.get("name"), desc[:80],
+            )
+            # Reload the face-identity gallery so the on-video overlay and
+            # the /api/faces/detect response show the new description.
+            if self.on_person_created:
+                try:
+                    self.on_person_created()
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to reload identity gallery")
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to update person description")

@@ -16,6 +16,20 @@ const keyPointsEl = document.getElementById("keyPointsList");
 
 const speakerStats = new Map();
 const liveSummaries = new Map();
+// speaker_id -> DOM nodes of transcript entries shown with a temporary
+// label, so they can be relabelled once the voice is linked to a person.
+const speakerEntries = new Map();
+
+/** Turn backend labels into readable ones ("SPEAKER_01" -> "Speaker 2"). */
+function friendlySpeaker(speaker) {
+  if (!speaker || speaker === "SPEAKER_UNKNOWN") return "Unknown voice";
+  const m = /^SPEAKER_(\d+)$/.exec(speaker);
+  if (m) {
+    const n = parseInt(m[1], 10) + 1;
+    return `Speaker ${isNaN(n) ? m[1] : n}`;
+  }
+  return speaker;
+}
 
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
@@ -133,7 +147,7 @@ function renderPendingExtracted(records) {
     return;
   }
   for (const r of records) {
-    const personName = r.person_name || r.speaker_id || "Unknown speaker";
+    const personName = r.person_name || friendlySpeaker(r.speaker_id) || "Unknown speaker";
     const correctionId = `corr-${r.id}`;
     const item = el(
       "div", { class: "pending-record" },
@@ -190,7 +204,7 @@ function renderSummaries(summaries) {
   // SSE summary merges with them instead of replacing the whole panel.
   liveSummaries.clear();
   for (const s of summaries) {
-    const name = s.person_name || s.speaker_id || "Unknown speaker";
+    const name = s.person_name || friendlySpeaker(s.speaker_id) || "Unknown speaker";
     const key = s.identity_uid || s.speaker_id || name;
     let entry = liveSummaries.get(key);
     if (!entry) {
@@ -207,8 +221,13 @@ function renderSummaries(summaries) {
 function handleSummaryEvent(data) {
   if (!keyPointsEl) return;
   const key = data.identity_id || data.speaker_id || "unknown";
-  const name = data.identity_name || data.speaker_id || "Unknown speaker";
+  const name = data.identity_name || friendlySpeaker(data.speaker_id) || "Unknown speaker";
   const isUnknown = !data.identity_id;
+  if (data.identity_id && data.identity_name) {
+    window.dispatchEvent(new CustomEvent("cf-person-known", {
+      detail: { identityId: data.identity_id, identityName: data.identity_name }
+    }));
+  }
   let entry = liveSummaries.get(key);
   if (!entry) {
     entry = { name, isUnknown, points: [] };
@@ -259,17 +278,26 @@ function handleTranscriptionEvent(data) {
     return;
   }
 
+  const wasKnown = associated && !!identityName;
   updateSpeakerStats(speaker, identityName, associated);
+
+  // A person just got registered/recognised from this very sentence:
+  // refresh the People tab so the new name + tag appear immediately.
+  if (wasKnown) {
+    window.dispatchEvent(new CustomEvent("cf-person-known", {
+      detail: { identityId: data.identity_id, identityName }
+    }));
+  }
 
   const entry = document.createElement("div");
   entry.className = `transcript-entry ${associated ? "associated" : "unassociated"}`;
-  const speakerLabel = associated && identityName ? identityName : speaker;
+  const speakerLabel = wasKnown ? identityName : friendlySpeaker(speaker);
   const speakerClass = associated ? "speaker-known" : "speaker-unknown";
 
   entry.innerHTML = `
     <div class="transcript-meta">
       <span class="speaker ${speakerClass}">${escapeHtml(speakerLabel)}</span>
-      ${associated ? '<span class="badge badge--known">Verified</span>' : '<span class="badge badge--unknown">Unknown</span>'}
+      ${wasKnown ? '<span class="badge badge--known">Verified</span>' : '<span class="badge badge--unknown">Unknown</span>'}
     </div>
     <div class="transcript-text">${escapeHtml(text)}</div>
   `;
@@ -279,6 +307,33 @@ function handleTranscriptionEvent(data) {
     if (empty) empty.remove();
     transcriptEl.prepend(entry);
   }
+
+  // Track this entry so a later "this voice is actually X" event can
+  // relabel the earlier lines in place.
+  let list = speakerEntries.get(speaker);
+  if (!list) { list = []; speakerEntries.set(speaker, list); }
+  list.unshift({ entry, labelEl: entry.querySelector(".speaker"), badgeEl: entry.querySelector(".badge") });
+  if (list.length > 60) list.length = 60;
+
+  if (wasKnown) relabelSpeakerEntries(speaker, identityName);
+}
+
+/** Retro-actively name a speaker's earlier transcript lines. */
+function relabelSpeakerEntries(speaker, identityName) {
+  const list = speakerEntries.get(speaker);
+  if (!list || !identityName) return;
+  for (const item of list) {
+    if (item.labelEl) item.labelEl.textContent = identityName;
+    if (item.labelEl) item.labelEl.classList.remove("speaker-unknown");
+    if (item.labelEl) item.labelEl.classList.add("speaker-known");
+    if (item.badgeEl) item.badgeEl.outerHTML = '<span class="badge badge--known">Verified</span>';
+    item.entry.classList.remove("unassociated");
+    item.entry.classList.add("associated");
+  }
+  // The same voice under a fresh temporary label (e.g. after a session
+  // restart) should also adopt the known name on its next line.
+  const stats = speakerStats.get(speaker);
+  if (stats) { stats.name = identityName; stats.associated = true; }
 }
 
 function updateSpeakerStats(speaker, identityName, associated) {

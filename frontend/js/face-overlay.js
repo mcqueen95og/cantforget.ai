@@ -206,16 +206,16 @@ function drawPersonCard(fx, fy, fw, fh, identity, alpha) {
 
   // ---- card body (semi-transparent) ----
   ctx.globalAlpha = alpha;
-  ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.82)";
   roundRect(ctx, cx, cy, CARD_WIDTH, cardH, 16);
   ctx.fill();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+  ctx.strokeStyle = "rgba(29, 43, 58, 0.18)";
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
   // ---- heading: name, with the role tab right next to it ----
   ctx.font = TITLE_FONT;
-  ctx.fillStyle = "#ffffff";
+  ctx.fillStyle = "#1d2b3a";
   ctx.textBaseline = "alphabetic";
   ctx.fillText(title, cx + CARD_PAD_X, cy + CARD_PAD_Y + 18);
   const titleEnd = cx + CARD_PAD_X + titleW;
@@ -230,10 +230,10 @@ function drawPersonCard(fx, fy, fw, fh, identity, alpha) {
     }
     if (px >= titleEnd + 4) {
       const py = cy + CARD_PAD_Y + 1;
-      ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.fillStyle = "rgba(47, 111, 219, 0.14)";
       roundRect(ctx, px, py, pw, ph, 10);
       ctx.fill();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.fillStyle = "#2559b5";
       ctx.fillText(role, px + 8, py + 14);
     }
   }
@@ -241,7 +241,7 @@ function drawPersonCard(fx, fy, fw, fh, identity, alpha) {
   // ---- description / summary underneath ----
   if (descLines.length) {
     ctx.font = DESC_FONT;
-    ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.fillStyle = "rgba(29, 43, 58, 0.78)";
     let dy = cy + CARD_PAD_Y + headerH + 6;
     for (const line of descLines) {
       ctx.fillText(line, cx + CARD_PAD_X, dy);

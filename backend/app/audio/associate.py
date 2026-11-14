@@ -159,11 +159,19 @@ class VoiceFaceAssociator:
                     )
 
         if not overlapping:
-            # No face track visible during this voice segment.
-            # Still try voice-profile matching for future confirmation.
+            # No face track visible during this voice segment. Voice-profile
+            # matching alone is still valid evidence: after enough agreeing
+            # segments the speaker is linked to the enrolled person, so
+            # attribution works across sessions even with the camera off.
             matched_uid, sim = self._match_voice_to_person(samples)
             if matched_uid is not None:
                 self._vote(speaker_id, matched_uid, sim)
+                confirmed = self._check_confirmation(session_id, speaker_id)
+                if confirmed is not None:
+                    logger.info(
+                        "Voice-only link confirmed: %s -> %s", speaker_id, confirmed
+                    )
+                    return confirmed
             return None
 
         # Sort by overlap ratio (best first).
@@ -182,30 +190,38 @@ class VoiceFaceAssociator:
             self._vote(speaker_id, best_face["person_uid"], best_face["overlap_ratio"])
 
         # Check if confirmed.
-        votes = self._speaker_votes.get(speaker_id, {})
-        if votes:
-            best_person = max(votes, key=votes.get)
-            if votes[best_person] >= self.confirm_frames:
-                self._confirmed_links[speaker_id] = best_person
-                # Persist to database.
-                try:
-                    from datetime import datetime, timezone
-                    now = datetime.now(timezone.utc).isoformat()
-                    self.db.link_speaker_to_identity(
-                        session_id=session_id,
-                        speaker_id=speaker_id,
-                        identity_uid=best_person,
-                        confidence=self.similarity_threshold,
-                        method="timestamp_sync",
-                    )
-                    logger.info(
-                        "Voice-to-face link confirmed: %s -> %s", speaker_id, best_person
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Failed to persist voice-to-face link: %s", exc)
-                return best_person
+        confirmed = self._check_confirmation(session_id, speaker_id)
+        if confirmed is not None:
+            return confirmed
 
         return None
+
+    def _check_confirmation(self, session_id: str, speaker_id: str) -> Optional[str]:
+        """Confirm a speaker link when enough agreeing votes accumulated."""
+        votes = self._speaker_votes.get(speaker_id, {})
+        if not votes:
+            return None
+        best_person = max(votes, key=votes.get)
+        if votes[best_person] < self.confirm_frames:
+            return None
+        self._confirmed_links[speaker_id] = best_person
+        # Persist to database.
+        try:
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            self.db.link_speaker_to_identity(
+                session_id=session_id,
+                speaker_id=speaker_id,
+                identity_uid=best_person,
+                confidence=self.similarity_threshold,
+                method="timestamp_sync",
+            )
+            logger.info(
+                "Voice-to-face link confirmed: %s -> %s", speaker_id, best_person
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to persist voice-to-face link: %s", exc)
+        return best_person
 
     def _vote(self, speaker_id: str, person_uid: str, confidence: float) -> None:
         if speaker_id not in self._speaker_votes:

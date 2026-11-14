@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>cantforget.ai — Face &amp; Voice</title>
-  <link rel="stylesheet" href="/static/css/main.css?v=12" />
+  <link rel="stylesheet" href="/static/css/main.css?v=14" />
 </head>
 <body>
   <!-- Full-page camera feed -->
@@ -41,6 +41,10 @@
     </button>
   </div>
 
+  <button id="helpBtn" class="icon-btn help-btn" aria-label="Show the tutorial" title="Show the tutorial">
+    <span aria-hidden="true">?</span>
+  </button>
+
   <div id="sideOverlay" class="side-overlay hidden"></div>
 
   <!-- Side panel drawer -->
@@ -55,8 +59,6 @@
     <nav class="panel-tabs" id="panelTabs">
       <button class="panel-tab active" data-tab="tab-conversation">Conversation</button>
       <button class="panel-tab" data-tab="tab-people">People</button>
-      <button class="panel-tab" data-tab="tab-history">History</button>
-      <button class="panel-tab" data-tab="tab-developer">Developer</button>
     </nav>
 
     <div class="tab-page" id="tab-conversation">
@@ -93,55 +95,28 @@
         </form>
       </details>
     </div>
-
-    <div class="tab-page hidden" id="tab-history">
-      <h2>Conversation History</h2>
-      <div class="key-points-controls">
-        <button id="processConvBtn" class="btn btn--small btn--primary" disabled>Process Conversation</button>
-      </div>
-      <div id="convWindowsList" class="conv-windows-list">
-        <div class="conv-windows-empty">Process the conversation to see windows and summaries.</div>
-      </div>
-
-      <h2>Summaries</h2>
-      <div id="convSummariesList" class="conv-summaries-list">
-        <div class="conv-summaries-empty">No summaries yet.</div>
-      </div>
-
-      <h2>Information Awaiting Approval</h2>
-      <div id="pendingExtractedList" class="pending-extracted-list">
-        <div class="pending-extracted-empty">No information awaiting approval.</div>
-      </div>
-
-      <h2>Participant Memories</h2>
-      <div id="participantMemoriesList" class="participant-memories-list">
-        <div class="participant-memories-empty">No participant memories yet.</div>
-      </div>
-    </div>
-
-    <div class="tab-page hidden" id="tab-developer">
-      <h2>Diagnostics</h2>
-      <div class="hints">
-        <div class="metric">
-          <span class="metric-label">FPS</span>
-          <span id="fpsDisplay" class="metric-value">--</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Faces</span>
-          <span id="faceCountDisplay" class="metric-value">0</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Detect (ms)</span>
-          <span id="detectMsDisplay" class="metric-value">--</span>
-        </div>
-      </div>
-      <p class="dev-note">Live camera pipeline diagnostics. The detection loop runs at a fixed interval; values update only while the camera is on.</p>
-    </div>
   </aside>
 
-  <script type="module" src="/static/js/app.js?v=12"></script>
+  <!-- Welcome tutorial: shown every time the app opens -->
+  <div id="welcome" class="welcome" role="dialog" aria-modal="true" aria-labelledby="welcomeTitle" hidden>
+    <div class="welcome-card">
+      <div class="welcome-skip-row">
+        <button id="welcomeClose" class="welcome-link" type="button">Skip</button>
+      </div>
+      <div id="welcomeBody" class="welcome-body" aria-live="polite"></div>
+      <div id="welcomeDots" class="welcome-dots" aria-hidden="true"></div>
+      <div class="welcome-nav">
+        <button id="welcomeBack" class="welcome-back" type="button">&larr; Back</button>
+        <button id="welcomeNext" class="welcome-next" type="button"></button>
+      </div>
+      <button id="welcomeAgain" class="welcome-link welcome-again" type="button" hidden>Show tutorial again</button>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/welcome.js?v=2"></script>
+  <script type="module" src="/static/js/app.js?v=13"></script>
   <script type="module" src="/static/js/audio.js?v=6"></script>
-  <script type="module" src="/static/js/conversation.js?v=9"></script>
-  <script type="module" src="/static/js/conversation-intelligence.js?v=2"></script>
+  <script type="module" src="/static/js/conversation.js?v=10"></script>
+  <script type="module" src="/static/js/conversation-intelligence.js?v=3"></script>
 </body>
 </html>

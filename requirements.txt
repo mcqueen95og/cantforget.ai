@@ -8,3 +8,8 @@ numpy>=1.24.0
 # Voice: speech-to-text (Whisper) and speaker recognition (3D-Speaker ERes2Net)
 faster-whisper>=1.0.0
 sherpa-onnx>=1.10.0
+# Voice activity detection (Silero) and the description/summary LLM (FLAN-T5)
+torch>=2.0.0
+silero-vad>=5.0.0
+transformers>=4.40.0
+sentencepiece>=0.2.0

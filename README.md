@@ -135,6 +135,14 @@ https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-mode
    -> data/models/speaker/eres2net.onnx
 ```
 
+Optional — the small LLM that writes person descriptions from conversations
+(person descriptions fall back to a template without it):
+
+```
+https://huggingface.co/google/flan-t5-small (all model files)
+   -> data/models/flan-t5-small/
+```
+
 (The `data/models/speaker/` folder may need to be created first.)
 
 The speech-to-text model (Whisper "tiny") is downloaded automatically the first
@@ -203,8 +211,8 @@ If you want to tweak how the app behaves, set these before starting the server
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `MATCH_THRESHOLD` | 0.45 | How strict the face match must be before a name is shown |
-| `WHISPER_MODEL` | tiny | Speech-to-text quality: `tiny` (fastest) → `base` → `small` (best, needs a better PC) |
-| `WHISPER_LANGUAGE` | (auto) | Leave empty to auto-detect the spoken language, or set e.g. `en`, `de` |
+| `WHISPER_MODEL` | base | Speech-to-text quality: `tiny` (fastest) → `base` → `small` (best, needs a better PC) |
+| `WHISPER_LANGUAGE` | en | Leave empty to auto-detect the spoken language, or set e.g. `en`, `de` |
 | `DIARIZATION_THRESHOLD` | 0.5 | How different two voices must be to count as two people |
 | `SUMMARIZER_USE_MODEL` | 0 | `0` = simple instant key points; `1` = use a downloaded AI summariser |
 | `DB_PATH` | data/forgetmenot.db | Where the memory file lives |

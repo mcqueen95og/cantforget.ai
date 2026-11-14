@@ -36,7 +36,7 @@ if (menuBtn) menuBtn.addEventListener("click", openMenu);
 if (closeMenuBtn) closeMenuBtn.addEventListener("click", closeMenu);
 if (sideOverlay) sideOverlay.addEventListener("click", closeMenu);
 
-// --- Panel tabs (Conversation / People / History / Developer) ---
+// --- Panel tabs (Conversation / People) ---
 const tabBar = document.getElementById("panelTabs");
 if (tabBar) {
   const tabs = [...tabBar.querySelectorAll(".panel-tab")];

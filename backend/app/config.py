@@ -58,9 +58,14 @@ VAD_MODEL_PATH = os.environ.get(
 SPEAKER_MODEL_PATH = os.environ.get(
     "SPEAKER_MODEL_PATH", str(MODELS_DIR / "speaker" / "eres2net.onnx")
 )
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "tiny")  # tiny | base | small
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")  # tiny | base | small
 # Optional fixed language (e.g. "en"). Empty = auto-detect per segment.
-WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "").strip() or None
+# Defaults to English: auto-detect on short mic clips frequently picks the
+# wrong language and produces garbled text.
+WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "en").strip() or None
+# CPU threads for Whisper inference. More threads = faster transcription,
+# which reduces the lag between speech and its transcript appearing.
+WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", "4"))
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.35"))

@@ -41,29 +41,81 @@ _WORD_RE = re.compile(r"[^\W_]+(?:['\u2019\-][^\W_]+)*")
 # name/relationship forms, so we never invent a person from vague speech.
 _NAME_PATTERNS = [
     re.compile(
-        r"\b(?:my name is|i am|i['\u2019]m|im)\s+(?:a\s+)?(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
+        r"\bmy\s+name(?:\u2019s|'s|\s+is)\s+(?:just\s+)?(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
         re.IGNORECASE,
     ),
     re.compile(
-        r"\b(?:hey|hi|hello|yo)\s+(?:i\s+am|i['\u2019]m|im)\s+(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
+        r"\b(?:you\s+can\s+)?call\s+me\s+(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bthis is\s+(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:hey|hi|hello|yo)\s+(?:i\s+am|i['\u2019]m|im)\s+(?:a\s+|an\s+|the\s+)?(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bthis\s+is\s+(?:a\s+|the\s+)?(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:i\s+am|i['\u2019]m|im)\s+(?:a\s+|an\s+|the\s+)?(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})\b",
+        re.IGNORECASE,
+    ),
 ]
+# A name said right after a role: "im your daughter mary" / "im your son, john".
+_ROLE_FIRST_PAT = re.compile(
+    r"\b(?:i\s+am|i['\u2019]m|im)\s+your\s+(?P<role>[A-Za-z'\u2019\-]{2,30})\s*[,!.]?\s*"
+    r"(?P<name>[A-Za-z][A-Za-z'\u2019\-]{1,40})?\b",
+    re.IGNORECASE,
+)
 _ROLE_PATTERNS = [
     re.compile(
-        r"\b(?:i\s+am|i['\u2019]m|im)\s+your\s+(?P<role>[A-Za-z'\u2019\-]{2,30})\b",
+        r"\b(?:i\s+am|i['\u2019]m|im)\s+(?:your|the)\s+(?P<role>[A-Za-z'\u2019\-]{2,30})\b",
         re.IGNORECASE,
     ),
-    re.compile(r"\bmy\s+(?P<role>[A-Za-z'\u2019\-]{2,30})\b", re.IGNORECASE),
-    re.compile(r"\b(?P<role>[A-Za-z'\u2019\-]{2,30})\s+of\s+mine\b", re.IGNORECASE),
 ]
-_COMMON_FILLERS = frozenset(
+# Only real relationship/role words are accepted as a tag, so phrases like
+# "my day was good" can never become someone's tag.
+_RELATIONSHIP_WORDS = frozenset(
     {
-        "a", "an", "and", "hello", "hey", "hi", "i", "me", "my", "no", "ok",
-        "okay", "that", "the", "this", "yes", "you", "your",
+        "mother", "mom", "mum", "mama", "father", "dad", "papa", "baba",
+        "brother", "sister", "son", "daughter", "wife", "husband", "spouse",
+        "grandmother", "grandma", "grandfather", "grandpa", "grandson",
+        "granddaughter", "grandchild", "uncle", "aunt", "aunty", "auntie",
+        "nephew", "niece", "cousin", "friend", "bestfriend", "girlfriend",
+        "boyfriend", "partner", "roommate", "flatmate", "neighbour",
+        "neighbor", "colleague", "coworker", "classmate", "teacher",
+        "student", "doctor", "nurse", "carer", "caregiver", "assistant",
+        "helper", "soninlaw", "daughterinlaw", "brotherinlaw", "sisterinlaw",
+        "motherinlaw", "fatherinlaw", "stepbrother", "stepsister",
+        "stepfather", "stepmother", "stepson", "stepdaughter", "elder",
+        "youngest", "eldest", "twin", "landlord", "neighbour",
     }
 )
+_COMMON_FILLERS = frozenset(
+    {
+        "a", "an", "and", "but", "so", "because", "to", "for", "at", "in",
+        "on", "it", "its", "is", "am", "are", "was", "be", "been", "the",
+        "that", "this", "these", "those", "hello", "hey", "hi", "i", "im",
+        "me", "my", "no", "not", "ok", "okay", "yes", "you", "your", "yours",
+        "here", "speaking", "sorry", "fine", "good", "great", "okay",
+        "tired", "hungry", "happy", "sad", "back", "home", "late", "early",
+        "ready", "busy", "free", "sure", "right", "wrong", "new", "old",
+        "one", "two", "first", "last", "just", "only", "very", "really",
+        "trying", "going", "coming", "looking", "thinking", "calling",
+    }
+)
+
+
+def _clean_capture(raw: str) -> str:
+    """Trim and normalise a captured name/role."""
+    value = (raw or "").strip().strip("'-,. ").strip()
+    if not value:
+        return ""
+    # Whisper often returns lowercase names ("im mary") - title-case them
+    # for display unless the text already has internal capitalisation.
+    if value.islower() or value.isupper():
+        value = value[:1].upper() + value[1:].lower()
+    return value
 
 
 def extract_person_intro(text: str) -> Optional[dict]:
@@ -73,9 +125,12 @@ def extract_person_intro(text: str) -> Optional[dict]:
 
         "hey im Ada"                    -> name: "Ada"
         "my name is John"               -> name: "John"
+        "my name's John"                -> name: "John"
+        "you can call me Ada"           -> name: "Ada"
         "i am your son"                 -> relationship: "son"
         "im your daughter"              -> relationship: "daughter"
         "hey im Mary, im your wife"     -> name: "Mary", relationship: "wife"
+        "im your daughter Mary"         -> name: "Mary", relationship: "daughter"
 
     Returns ``{"name": ..., "relationship": ...}`` with only the fields that
     were confidently found, or ``None`` if nothing was detected.
@@ -84,31 +139,52 @@ def extract_person_intro(text: str) -> Optional[dict]:
         return None
 
     found: dict[str, str] = {}
-    for pat in _NAME_PATTERNS:
-        m = pat.search(text)
-        if not m:
-            continue
-        name = m.group("name").strip().strip("'-,. ")
-        if not name:
-            continue
-        if name.lower() in _COMMON_FILLERS:
-            continue
-        found["name"] = name
-        break
 
-    for pat in _ROLE_PATTERNS:
-        m = pat.search(text)
-        if not m:
-            continue
-        role = m.group("role").strip().strip("'-,. ")
-        if not role:
-            continue
-        if role.lower() in _COMMON_FILLERS:
-            continue
-        if role.lower() == "name":
-            continue
-        found["relationship"] = role
-        break
+    # Role-first form: "im your daughter mary".
+    m = _ROLE_FIRST_PAT.search(text)
+    if m and m.group("role").lower().strip("'-") in _RELATIONSHIP_WORDS:
+        role = _clean_capture(m.group("role"))
+        if role:
+            found["relationship"] = role
+            name = _clean_capture(m.group("name") or "")
+            if name and name.lower() not in _COMMON_FILLERS:
+                found["name"] = name
+
+    if "name" not in found:
+        for pat in _NAME_PATTERNS:
+            m = pat.search(text)
+            if not m:
+                continue
+            name = _clean_capture(m.group("name"))
+            if not name:
+                continue
+            if name.lower() in _COMMON_FILLERS:
+                continue
+            # Reject contractions captured as names ("let's", "it's",
+            # "don't" ...). Real names never end in "'s"/"n't".
+            if re.search(r"['’](?:s|t)$", name.lower()):
+                continue
+            # Skip words that are relationship roles ("im your sister" must
+            # not become a person named "Your" or a name-less role match).
+            if name.lower() in _RELATIONSHIP_WORDS:
+                continue
+            found["name"] = name
+            break
+
+    if "relationship" not in found:
+        for pat in _ROLE_PATTERNS:
+            m = pat.search(text)
+            if not m:
+                continue
+            role = _clean_capture(m.group("role"))
+            if not role:
+                continue
+            if role.lower() in _COMMON_FILLERS:
+                continue
+            if role.lower() not in _RELATIONSHIP_WORDS:
+                continue
+            found["relationship"] = role
+            break
 
     return found or None
 
@@ -464,3 +540,181 @@ class LocalModelSummarizer:
         if point_words and point_words <= source_words and len(point_words) > 25:
             return False
         return True
+
+
+class PersonDescriptionWriter:
+    """Writes a short, human description of a person from their key points.
+
+    Goal: replace "Introduced by voice: ..." with something like
+    "Talked about the hackathon he went to where he got 3rd place."
+
+    Uses a local FLAN-T5 checkpoint (from ``data/models``) when available,
+    and falls back to a deterministic template that composes the same kind
+    of sentence from the key points. Both paths stay fully offline.
+    """
+
+    def __init__(
+        self,
+        model_path: str = SUMMARIZER_MODEL_PATH,
+        fallback_path: str = SUMMARIZER_FALLBACK_PATH,
+    ) -> None:
+        self._explicit_path = model_path
+        self._fallback_path = fallback_path
+        self._tokenizer = None
+        self._model = None
+        self._attempted = False
+        self._lock = threading.Lock()
+        self.model_version = "extractive"
+
+    def _ensure_model(self) -> bool:
+        if self._model is not None:
+            return True
+        if self._attempted:
+            return False
+        with self._lock:
+            if self._model is not None:
+                return True
+            if self._attempted:
+                return False
+            self._attempted = True
+            for path in (self._explicit_path, self._fallback_path):
+                if not path or not Path(path).exists():
+                    continue
+                try:
+                    import torch
+                    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+                    torch.set_num_threads(max(1, min(2, torch.get_num_threads())))
+                    tok = AutoTokenizer.from_pretrained(path, local_files_only=True)
+                    model = AutoModelForSeq2SeqLM.from_pretrained(
+                        path, local_files_only=True
+                    )
+                    model.eval()
+                    self._tokenizer = tok
+                    self._model = model
+                    self.model_version = f"flan-t5:{Path(path).name}"
+                    logger.info("Description model loaded: %s", path)
+                    return True
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Could not load description model at %s (%s); trying next",
+                        path, exc,
+                    )
+                    self._model = None
+            self.model_version = "extractive"
+        return self._model is not None
+
+    # ------------------------------------------------------------ internals ---
+
+    def _prompt(self, name: str, points: list[str]) -> str:
+        notes = "; ".join(points)
+        return (
+            "Write one short sentence about what this person talked about. "
+            "Write it like a friendly note about them, under 20 words.\n"
+            f"{name} said: {notes}\n"
+            "Sentence:"
+        )
+
+    def _model_write(self, name: str, points: list[str]) -> str:
+        import torch
+
+        enc = self._tokenizer(
+            self._prompt(name, points), return_tensors="pt", truncation=True,
+            max_length=512,
+        )
+        with torch.no_grad():
+            out = self._model.generate(
+                **enc,
+                max_new_tokens=40,
+                num_beams=2,
+                do_sample=False,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.15,
+            )
+        text = self._tokenizer.decode(out[0], skip_special_tokens=True)
+        text = (text or "").strip()
+        lower = text.lower()
+        for prefix in ("sentence:", "description:", "answer:", "summary:"):
+            if lower.startswith(prefix):
+                text = text[len(prefix):].strip()
+        words = _WORD_RE.findall(text)
+        if len(words) < 4 or len(words) > 35:
+            return ""
+        if text and text[-1] not in ".!?":
+            text += "."
+        return text
+
+    # ------------------------------------------------------------- template ---
+
+    def _topic_fragment(self, name: str, point: str) -> str:
+        """Turn a key point into a topic fragment ("coming for dinner")."""
+        t = re.sub(r"\s+", " ", (point or "").strip())
+        t = t.rstrip(".!?; ")
+        name_l = (name or "").lower().strip()
+        # Drop a leading mention of the person's own name ("Mary is coming").
+        if name_l and t.lower().startswith(name_l):
+            t = t[len(name_l):].lstrip(" ,'’-")
+        # Drop leading auxiliaries left behind ("is coming" -> "coming").
+        t = re.sub(
+            r"^(?:is|are|was|were|has|have|had|likes|liked|loves|loved|wants|"
+            r"wanted|talked about|talks about|told me|mentioned|said)\s+",
+            "", t, flags=re.IGNORECASE,
+        )
+        if not t:
+            return ""
+        # Lowercase the first word so it reads naturally inside a sentence.
+        if len(t) > 1 and t[1:2].islower() or len(t) == 1:
+            t = t[0].lower() + t[1:]
+        return t
+
+    def _compose(self, name: str, points: list[str]) -> str:
+        topics: list[str] = []
+        seen: set[str] = set()
+        for p in points[:3]:
+            frag = self._topic_fragment(name, p)
+            if not frag or frag.lower() in seen:
+                continue
+            seen.add(frag.lower())
+            topics.append(frag)
+        if not topics:
+            return ""
+        if len(topics) == 1:
+            return f"Talked about {topics[0]}."
+        head = ", ".join(topics[:-1])
+        return f"Talked about {head} and {topics[-1]}."
+
+    # --------------------------------------------------------------- public ---
+
+    def _strip_leading_name(self, name: str, text: str) -> str:
+        """Drop a leading "{name} ..." so descriptions read like a note."""
+        t = (text or "").strip()
+        # Drop leading connectives the LLM sometimes starts with.
+        t = re.sub(r"^(?:and|also|but|so|then)\s+", "", t, flags=re.IGNORECASE)
+        name_l = (name or "").lower().strip()
+        if name_l and t.lower().startswith(name_l):
+            rest = t[len(name_l):]
+            if rest[:2] in ("'s", "\u2019s"):
+                rest = rest[2:]
+            rest = rest.strip(" ,'’-")
+            if rest:
+                t = rest
+        if t:
+            t = t[0].upper() + t[1:]
+        return t
+
+    def write(self, name: str, points: list[str]) -> str:
+        """Return one short description sentence from the person's key points."""
+        pts = [re.sub(r"\s+", " ", (p or "").strip()) for p in points]
+        pts = [p for p in pts if p]
+        if not pts:
+            return ""
+        if self._ensure_model() and self._tokenizer is not None and self._model is not None:
+            try:
+                text = self._model_write(name, pts[:3])
+                if text:
+                    self.model_version = self.model_version or "flan-t5"
+                    return self._strip_leading_name(name, text)
+                logger.info("Description model output too weak; using template")
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("Description generation failed: %s", exc)
+        return self._strip_leading_name(name, self._compose(name, pts))

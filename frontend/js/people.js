@@ -312,4 +312,10 @@ export function initPeople() {
   renderPresence();
   updatePendingEmpty();
   refreshPeople();
+  // When someone is registered or recognised from the conversation
+  // (voice self-introduction), refresh so their name + tag show up
+  // immediately without a manual reload.
+  window.addEventListener("cf-person-known", () => {
+    refreshPeople();
+  });
 }
