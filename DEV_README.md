@@ -240,17 +240,20 @@ summary batch      ──► PersonDescriptionWriter.write_facts()
   (role-of, "your <role>", article-noun, from/place, age, bare
   name/state) and converts dedicated patterns (`I work as`, `I live in`,
   `I like/love/enjoy`, `I have`). Filler/junk/second-person fragments are
-  rejected; the pronoun ("He"/"She") is chosen from the person's
-  relationship tag.
+  rejected. **Facts are stored with the person's NAME as the subject**
+  ("Sarah is a mathematician") — never a pronoun — so they are always
+  correct; the gender pronoun is substituted only at *render time* when
+  the relationship tag reveals it ("She is a mathematician"), which also
+  retroactively fixes facts written before the tag was known. Unknown
+  gender → the name is kept, which is always correct.
 - **Model path** (`PersonDescriptionWriter.write_facts`): FLAN-T5 is
   prompted for third-person fact lines; output is validated (length,
-  no first/second person) and near-duplicate-checked against the ledger
-  *and* against already-accepted candidates from the same batch, so model
-  variants collapse into the deterministic facts. Known caveat: the small
-  model occasionally **invents** details — test with real speech and set
-  `DESCRIPTION_USE_MODEL=0` if invented facts outweigh the good ones. The
-  deterministic extractor is always applied too, so the description works
-  correctly even with the model disabled.
+  no first/second person), normalised to a name-subject, and
+  near-duplicate-checked against the ledger. **OFF by default**
+  (`DESCRIPTION_USE_MODEL=0`): the small model sometimes *invents* facts
+  that were never said; enable only if the paraphrase value outweighs
+  that risk. The deterministic extractor always runs, so the description
+  works fully without the model.
 - **Ledger** (`person_facts` table): `person_uid, fact, source
   ('model'|'claim'|'intro'), session_id, created_at`, exact-duplicate-proof,
   cascading delete with the person. `add_person_fact` / `list_person_facts`
@@ -399,7 +402,7 @@ list):
 | Whisper | `WHISPER_MODEL` (default `tiny`), `WHISPER_LANGUAGE` (default *auto-detect*, `""`), `WHISPER_CPU_THREADS` (default 2), `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE` |
 | VAD / diarisation | `VAD_*`, `DIARIZATION_*`, `VOICE_ENROLL_*`, `VOICE_SIMILARITY_THRESHOLD`, `VOICE_ASSOC_*` |
 | Summaries | `SUMMARIZER_*`, `SUMMARY_*` |
-| Description engine | `DESCRIPTION_USE_MODEL` (1 = try FLAN-T5 first), `DESCRIPTION_MAX_FACTS` (8), `DESCRIPTION_MAX_CHARS` (460) |
+| Description engine | `DESCRIPTION_USE_MODEL` (0 = extractor only, never invents — recommended), `DESCRIPTION_MAX_FACTS` (8), `DESCRIPTION_MAX_CHARS` (460) |
 | Storage / server | `DB_PATH` (default `data/cantforget.db`), `HOST`, `PORT` |
 
 **Hardware budget note.** The reference machine is an Intel i3-5005U

@@ -307,21 +307,27 @@ def _norm_fact(text: str) -> str:
     return " ".join((text or "").split()).strip().strip(" .,-")
 
 
-def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
+def extract_self_claims(text: str, subject: str = "He") -> list[str]:
     """Extract third-person facts from first-person statements.
 
-    Examples (pronoun "He"):
-        "Hi, I'm Rahul."                        -> "He is Rahul"
-        "I'm a mathematician"                   -> "He is a mathematician"
+    Facts are stored with the person's **name** as the subject (never a
+    pronoun), so they stay correct no matter when the person's gender
+    becomes known ("Sarah is a mathematician", later rendered as
+    "She is a mathematician"). Pass the person's name as ``subject``.
+
+    Examples (subject "Rahul"):
+        "Hi, I'm Rahul."                        -> "Rahul is Rahul" (skipped:
+                                                   the name field covers it)
+        "I'm a mathematician"                   -> "Rahul is a mathematician"
         "I'm a mathematician and the son of
-         Watkins"                               -> "He is a mathematician",
+         Watkins"                               -> "Rahul is a mathematician",
                                                    "Son of Watkins"
-        "I'm your son"                          -> "He is your son"
-        "I work as a teacher"                   -> "He works as a teacher"
-        "I live in Delhi" / "I'm from Delhi"    -> "He lives in Delhi" /
-                                                   "He is from Delhi"
-        "I like chess"                          -> "He likes chess"
-        "I'm 70 years old"                      -> "He is 70 years old"
+        "I'm your son"                          -> "Rahul is your son"
+        "I work as a teacher"                   -> "Rahul works as a teacher"
+        "I live in Delhi" / "I'm from Delhi"    -> "Rahul lives in Delhi" /
+                                                   "Rahul is from Delhi"
+        "I like chess"                          -> "Rahul likes chess"
+        "I'm 70 years old"                      -> "Rahul is 70 years old"
 
     Returns a list of short fact strings (without bullet markers). Junk
     ("I'm fine", "I'm here") is rejected via the filler word list.
@@ -329,7 +335,7 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
     if not text:
         return []
     facts: list[str] = []
-    pron = (pronoun or "He").strip().capitalize() or "He"
+    subj = (subject or "He").strip() or "He"
 
     def accept(fact: str) -> None:
         fact = _norm_fact(fact)
@@ -340,9 +346,9 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
             return
         if _FIRST_PERSON.search(fact):
             return
-        # Reject pure filler content ("He is fine", "He is here").
+        # Reject pure filler content ("Sarah is fine", "Sarah is here").
         tail = fact
-        for lead in (f"{pron} is", f"{pron} are", f"{pron} was"):
+        for lead in (f"{subj} is", f"{subj} are", f"{subj} was"):
             if tail.lower().startswith(lead.lower()):
                 tail = tail[len(lead):].strip()
                 break
@@ -351,10 +357,12 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
             return
         facts.append(fact[0].upper() + fact[1:] if fact[:1].islower() else fact)
 
-    # A stated name is a fact too ("Hi, I'm Rahul" -> "He is Rahul").
+    # A stated name is a fact too ("Hi, I'm Rahul") — but skip it when it
+    # is the same person's own name (the name field already says that).
     intro = extract_person_intro(text)
     if intro and intro.get("name"):
-        accept(f"{pron} is {intro['name']}")
+        if intro["name"].lower() != subj.lower():
+            accept(f"{subj} is {intro['name']}")
 
     # Compound sentences are split at each new first-person statement, so
     # "I'm a mathematician and I have dementia" produces both facts.
@@ -368,17 +376,17 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
         for m in _WORK_PAT.finditer(clause):
             what = _norm_fact(m.group("what"))
             if what and what.lower() not in _COMMON_FILLERS:
-                accept(f"{pron} works as {what}")
+                accept(f"{subj} works as {what}")
         for m in _LIVE_PAT.finditer(clause):
             where = _clean_capture(m.group("where"))
             if where:
-                accept(f"{pron} lives in {where}")
+                accept(f"{subj} lives in {where}")
         for m in _ENJOY_PAT.finditer(clause):
             what = _norm_fact(m.group("what"))
             verb = m.group("verb").lower()
             maps = {"like": "likes", "love": "loves", "enjoy": "enjoys"}
             if what and what.lower() not in _COMMON_FILLERS:
-                accept(f"{pron} {maps[verb]} {what}")
+                accept(f"{subj} {maps[verb]} {what}")
         for m in _HAVE_PAT.finditer(clause):
             what = _norm_fact(m.group("what"))
             if not what:
@@ -391,7 +399,7 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
                 or what.lower().startswith("to ")
             ):
                 continue
-            accept(f"{pron} has {what}")
+            accept(f"{subj} has {what}")
 
         # "I'm/I am <predicate>" — split the predicate and classify fragments,
         # so "I'm a mathematician and the son of Watkins" yields both facts.
@@ -414,38 +422,40 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
                 if ym:
                     role = ym.group("role").lower().strip("'-")
                     if role in _RELATIONSHIP_WORDS:
-                        accept(f"{pron} is your {role}")
+                        accept(f"{subj} is your {role}")
                     continue
                 am = _AGE_PAT.match(frag)
                 if am:
                     age = int(am.group("age"))
                     if 1 <= age <= 120:
-                        accept(f"{pron} is {age} years old")
+                        accept(f"{subj} is {age} years old")
                     continue
                 fm = _FROM_PAT.match(frag)
                 if fm:
                     place = _clean_capture(fm.group("place"))
                     if place and place.lower() not in _COMMON_FILLERS:
-                        accept(f"{pron} is from {place}")
+                        accept(f"{subj} is from {place}")
                     continue
                 nm = _ARTICLE_NOUN_PAT.match(frag)
                 if nm:
                     noun = _norm_fact(nm.group("noun"))
                     if noun and noun.lower() not in _COMMON_FILLERS:
-                        accept(f"{pron} is a {noun}")
+                        accept(f"{subj} is a {noun}")
                     continue
                 # Bare fragment: a name ("Rahul"), a state ("retired"), etc.
                 words = frag.split()
                 first = words[0].lower().strip("'-") if words else ""
+                frag_c = _clean_capture(frag)
                 if (
                     len(words) <= 3
                     and first not in _VERB_START
                     and frag.lower() not in _COMMON_FILLERS
+                    and frag_c
+                    and frag_c.lower() not in _COMMON_FILLERS
+                    and frag_c.lower() != subj.lower()
                     and not _SECOND_PERSON.search(frag)
                 ):
-                    frag_c = _clean_capture(frag)
-                    if frag_c and frag_c.lower() not in _COMMON_FILLERS:
-                        accept(f"{pron} is {frag_c}")
+                    accept(f"{subj} is {frag_c}")
 
     # Deduplicate while preserving order.
     seen: set[str] = set()
@@ -459,15 +469,28 @@ def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
 
 
 def render_description(
-    facts: list[str], max_facts: int = 8, max_chars: int = 460
+    facts: list[str],
+    name: Optional[str] = None,
+    pronoun: Optional[str] = None,
+    max_facts: int = 8,
+    max_chars: int = 460,
 ) -> str:
-    """Render the fact ledger as bullet lines for ``persons.description``."""
+    """Render the fact ledger as bullet lines for ``persons.description``.
+
+    Facts are stored name-first ("Sarah is a mathematician"). When the
+    person's gender is known (``pronoun`` = "He"/"She"), the leading name
+    is swapped for the pronoun at display time — so earlier facts are
+    corrected retroactively once e.g. a "your daughter" tag arrives.
+    With no known gender the name is kept, which is always correct.
+    """
     lines: list[str] = []
     total = 0
     for f in facts:
         f = _norm_fact(f)
         if not f:
             continue
+        if pronoun and name and f.lower().startswith(name.lower() + " "):
+            f = f"{pronoun}{f[len(name):]}"
         line = f"- {f}"
         if len(lines) >= max_facts or total + len(line) + 1 > max_chars:
             break
@@ -1009,7 +1032,7 @@ class PersonDescriptionWriter:
     # ------------------------------------------------ cumulative facts ---
 
     def _model_facts(
-        self, name: str, utterances: list[str], pronoun: str
+        self, name: str, utterances: list[str], pronoun: Optional[str]
     ) -> list[str]:
         """Extract fact candidates from speech with the local model."""
         import torch
@@ -1017,7 +1040,7 @@ class PersonDescriptionWriter:
         joined = join_utterances(utterances)[:SUMMARIZER_MAX_INPUT_CHARS]
         prompt = (
             f"List short facts about {name}, extracted from what {name} said "
-            f"about {('himself' if pronoun.lower() == 'he' else 'herself')}. "
+            f"about {('himself' if (pronoun or 'He').lower() == 'he' else 'herself')}. "
             "One fact per line, under 10 words each, third person only.\n"
             f"{name} said: {joined}\n"
             "Facts:"
@@ -1040,9 +1063,15 @@ class PersonDescriptionWriter:
             f = re.sub(r"^\s*[-*\u2022\d.)\s]+", "", (line or "").strip())
             f = self._strip_leading_name(name, f)
             f = _norm_fact(f)
-            # "is a mathematician" -> "He is a mathematician"
+            # Normalise the subject to the person's NAME so facts stay
+            # correct regardless of when their gender becomes known:
+            #   "is a mathematician" / "He is a chess player"
+            #       -> "{name} is a mathematician" / "{name} is a chess player"
             if re.match(r"^is\s+", f, flags=re.IGNORECASE):
-                f = f"{pronoun} {f[0].lower()}{f[1:]}"
+                f = f"{name} {f[0].lower()}{f[1:]}"
+            elif re.match(r"^(?:he|she)\s+", f, flags=re.IGNORECASE) and name:
+                # "He is a chess player" -> "{name} is a chess player"
+                f = f"{name} {f[3:]}"
             if f:
                 facts.append(f)
         return facts
@@ -1067,15 +1096,20 @@ class PersonDescriptionWriter:
         name: str,
         utterances: list[str],
         known_facts: Optional[list[str]] = None,
-        pronoun: str = "He",
+        pronoun: Optional[str] = None,
         use_model: bool = True,
     ) -> list[str]:
         """Extract new facts a person stated about themselves.
 
-        Model-first (when DESCRIPTION_USE_MODEL=1 and the checkpoint loads),
-        with the deterministic ``extract_self_claims`` fallback — which also
-        always runs alongside the model to catch what it misses. Returns
-        only facts that are not near-duplicates of ``known_facts``.
+        Facts are returned with the person's NAME as the subject
+        ("Sarah is a mathematician"); the pronoun is applied at render
+        time. ``pronoun`` is only used to steer the model prompt.
+
+        When ``DESCRIPTION_USE_MODEL=1`` and the checkpoint loads, the
+        model proposes facts first; the deterministic
+        ``extract_self_claims`` extractor always runs alongside as the
+        reliable fallback. Returns only facts that are not
+        near-duplicates of ``known_facts``.
         """
         utterances = [u for u in (utterances or []) if u and u.strip()]
         known = list(known_facts or [])
@@ -1091,8 +1125,9 @@ class PersonDescriptionWriter:
                 logger.info("Description model unavailable; claim extractor only")
 
         # Deterministic extractor always runs (fallback + complement).
+        subject = (name or "").strip() or (pronoun or "He")
         for utt in utterances:
-            found.extend(extract_self_claims(utt, pronoun=pronoun))
+            found.extend(extract_self_claims(utt, subject=subject))
 
         out: list[str] = []
         seen: set[str] = set()

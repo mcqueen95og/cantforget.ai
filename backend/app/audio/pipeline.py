@@ -1106,18 +1106,32 @@ class AudioPipeline:
                 )
 
     @staticmethod
-    def _person_pronoun(person: dict) -> str:
-        """Pick "He"/"She" from the relationship tag, defaulting to He."""
+    def _person_pronoun(person: dict) -> Optional[str]:
+        """Pick "He"/"She" from the relationship tag, or None if unknown.
+
+        Facts are stored with the person's name as subject; the pronoun is
+        applied at render time, so facts written before the gender was
+        known are corrected automatically once a role tag appears.
+        """
         tag = (person.get("tag") or "").lower()
         female = (
             "daughter", "wife", "mother", "mom", "mum", "sister",
             "granddaughter", "grandmother", "grandma", "aunt", "auntie",
             "niece", "girlfriend", "stepmother", "stepsister",
-            "daughterinlaw", "motherinlaw", "sisterinlaw",
+            "daughterinlaw", "motherinlaw", "sisterinlaw", "woman", "girl",
+            "lady", "she", "her",
+        )
+        male = (
+            "son", "husband", "father", "dad", "papa", "brother",
+            "grandson", "grandfather", "grandpa", "uncle", "nephew",
+            "boyfriend", "stepfather", "stepbrother", "soninlaw",
+            "fatherinlaw", "brotherinlaw", "man", "guy", "he", "him",
         )
         if any(w in tag for w in female):
             return "She"
-        return "He"
+        if any(w in tag for w in male):
+            return "He"
+        return None
 
     async def _learn_facts_for_person(
         self, uid: str, texts: list[str], use_model: bool
@@ -1174,7 +1188,10 @@ class AudioPipeline:
             if not facts:
                 return
             desc = render_description(
-                facts, max_facts=DESCRIPTION_MAX_FACTS,
+                facts,
+                name=person.get("name") or "",
+                pronoun=self._person_pronoun(person),
+                max_facts=DESCRIPTION_MAX_FACTS,
                 max_chars=DESCRIPTION_MAX_CHARS,
             )
             if not desc or desc == (person.get("description") or "").strip():

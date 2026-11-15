@@ -107,10 +107,11 @@ SUMMARY_MAX_SEGMENTS = int(os.environ.get("SUMMARY_MAX_SEGMENTS", "12"))
 SUMMARY_MIN_SPAN_MS = int(os.environ.get("SUMMARY_MIN_SPAN_MS", "15000"))
 
 # --- Person description (cumulative fact ledger) ---
-# 1 = try the local FLAN-T5 model first when extracting facts from speech.
-# The deterministic claim extractor always runs as well (and as fallback),
-# so the description still grows when the model produces nothing usable.
-DESCRIPTION_USE_MODEL = os.environ.get("DESCRIPTION_USE_MODEL", "1") == "1"
+# 0 = deterministic claim extractor only (RECOMMENDED — never invents
+# facts). 1 = also try the local FLAN-T5 model for paraphrased/inferred
+# facts; the small model sometimes INVENTS details that were never said,
+# so this is off by default.
+DESCRIPTION_USE_MODEL = os.environ.get("DESCRIPTION_USE_MODEL", "0") == "1"
 DESCRIPTION_MAX_FACTS = int(os.environ.get("DESCRIPTION_MAX_FACTS", "8"))
 DESCRIPTION_MAX_CHARS = int(os.environ.get("DESCRIPTION_MAX_CHARS", "460"))
 
