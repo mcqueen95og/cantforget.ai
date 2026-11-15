@@ -46,7 +46,6 @@ from .associate import VoiceFaceAssociator
 from .events import ConversationEventBus
 from .summarize import (
     ConversationSummarizer,
-    LocalModelSummarizer,
     PersonDescriptionWriter,
     extract_person_intro,
     join_utterances,
@@ -177,7 +176,7 @@ class AudioPipeline:
         self.on_person_created: Optional[object] = None
 
         # Live per-speaker summaries.
-        self._summarizer: Optional[LocalModelSummarizer] = None
+        self._summarizer: Optional[ConversationSummarizer] = None
         # Writes a person's "description" from their conversation points.
         self._desc_writer: Optional[PersonDescriptionWriter] = None
         self._summary_pending: list[dict] = []
@@ -217,7 +216,7 @@ class AudioPipeline:
                 min_segment_ms=DIARIZATION_MIN_SEGMENT_MS,
             )
         if self._summarizer is None:
-            self._summarizer = LocalModelSummarizer()
+            self._summarizer = ConversationSummarizer()
         if self._desc_writer is None:
             self._desc_writer = PersonDescriptionWriter()
         if self._associator is None:
@@ -852,7 +851,7 @@ class AudioPipeline:
         # mathematician") is checked for self-claims; new ones extend the
         # person's cumulative fact ledger and refresh their description.
         if identity_uid and text:
-            await self._learn_facts_for_person(identity_uid, [text], use_model=False)
+            await self._learn_facts_for_person(identity_uid, [text])
 
         # --- Persist ---
         seg_id = None
@@ -1102,7 +1101,7 @@ class AudioPipeline:
             # Grow the person's profile description from what they said.
             if identity_uid:
                 await self._learn_facts_for_person(
-                    identity_uid, [s.get("text") or "" for s in segs], use_model=True
+                    identity_uid, [s.get("text") or "" for s in segs]
                 )
 
     @staticmethod
@@ -1133,16 +1132,11 @@ class AudioPipeline:
             return "He"
         return None
 
-    async def _learn_facts_for_person(
-        self, uid: str, texts: list[str], use_model: bool
-    ) -> None:
+    async def _learn_facts_for_person(self, uid: str, texts: list[str]) -> None:
         """Extract self-claims from ``texts`` and merge them into the ledger.
 
-        ``use_model=False`` (per-sentence path) runs only the fast
-        deterministic extractor. ``use_model=True`` (per-summary-batch path)
-        tries the local FLAN-T5 model first, with the extractor always
-        running as well. The description is refreshed only when a new fact
-        was actually added.
+        Facts come solely from the deterministic claim extractor; the
+        description is refreshed only when a new fact was actually added.
         """
         if not uid or not any(t for t in texts):
             return
@@ -1158,14 +1152,13 @@ class AudioPipeline:
                 texts,
                 known,
                 pronoun,
-                use_model,
             )
             added = False
             for f in facts:
                 try:
                     if self.db.add_person_fact(
                         uid, f,
-                        source="model" if use_model else "claim",
+                        source="claim",
                         session_id=self.session_id,
                     ):
                         added = True

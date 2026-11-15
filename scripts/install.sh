@@ -57,7 +57,7 @@ fi
 bold "3/4  Installing the Python libraries (this can take a few minutes)"
 "$VENV_PY" -m pip install --upgrade pip --quiet
 "$VENV_PY" -m pip install -r "$PROJECT_DIR/requirements.txt"
-ok "Libraries installed (FastAPI, OpenCV, Whisper, sherpa-onnx, transformers, ...)"
+ok "Libraries installed (FastAPI, OpenCV, Whisper, sherpa-onnx, ...)"
 
 # --- 4. AI model files -----------------------------------------------------
 bold "4/4  Downloading the AI model files"
@@ -93,29 +93,6 @@ fetch "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/sil
 fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx" \
       "$SPEAKER_DIR/eres2net.onnx" \
       "voice recogniser (ERes2Net)"
-
-# Optional: the local model that extracts facts from speech for the
-# person descriptions. The app works without it (a built-in extractor
-# is used instead), so this download is best-effort.
-if [ -f "$MODELS_DIR/flan-t5-small/model.safetensors" ]; then
-    ok "description model (FLAN-T5) already present"
-else
-    info "downloading the description model (FLAN-T5, ~300 MB) ..."
-    if "$VENV_PY" - <<'PY'
-from huggingface_hub import snapshot_download
-snapshot_download(
-    "google/flan-t5-small",
-    local_dir="data/models/flan-t5-small",
-    local_dir_use_symlinks=False,
-)
-PY
-    then
-        ok "description model (FLAN-T5) saved"
-    else
-        warn "could not download FLAN-T5 — the app will still work;"
-        warn "person descriptions will use the built-in extractor only."
-    fi
-fi
 
 # The speech-to-text model (Whisper "tiny") downloads itself on first use.
 echo ""

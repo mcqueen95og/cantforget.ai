@@ -63,7 +63,7 @@ Write-Host "3/4  Installing the Python libraries (this can take a few minutes)" 
 & $VenvPy -m pip install --upgrade pip --quiet
 & $VenvPy -m pip install -r (Join-Path $ProjectDir "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Library installation failed." }
-Ok "Libraries installed (FastAPI, OpenCV, Whisper, sherpa-onnx, transformers, ...)"
+Ok "Libraries installed (FastAPI, OpenCV, Whisper, sherpa-onnx, ...)"
 
 # --- 4. AI model files --------------------------------------------------------
 Write-Host "4/4  Downloading the AI model files" -ForegroundColor White
@@ -96,21 +96,6 @@ Fetch "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongiti
       (Join-Path $SpeakerDir "eres2net.onnx") `
       "voice recogniser (ERes2Net)"
 
-# Optional: the local model that extracts facts from speech for the person
-# descriptions. The app works without it (a built-in extractor is used
-# instead), so this download is best-effort.
-$flanDir = Join-Path $ModelsDir "flan-t5-small"
-if (Test-Path (Join-Path $flanDir "model.safetensors")) {
-    Ok "description model (FLAN-T5) already present"
-} else {
-    Info "downloading the description model (FLAN-T5, ~300 MB) ..."
-    & $VenvPy -c "from huggingface_hub import snapshot_download; snapshot_download('google/flan-t5-small', local_dir=r'$flanDir', local_dir_use_symlinks=False)"
-    if ($LASTEXITCODE -eq 0) {
-        Ok "description model (FLAN-T5) saved"
-    } else {
-        Warn "could not download FLAN-T5 - the app will still work;"
-        Warn "person descriptions will use the built-in extractor only."
-    }
 }
 
 # The speech-to-text model (Whisper "tiny") downloads itself on first use.

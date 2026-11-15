@@ -88,30 +88,15 @@ VOICE_ASSOC_CONFIRM_FRAMES = int(os.environ.get("VOICE_ASSOC_CONFIRM_FRAMES", "3
 VOICE_ASSOC_MAX_OFFSET_MS = int(os.environ.get("VOICE_ASSOC_MAX_OFFSET_MS", "1000"))
 
 # --- Conversation summaries (local, CPU-only) ---
+# Extractive only: ranks sentences by term frequency, never invents content.
 SUMMARIZER_ENABLED = os.environ.get("SUMMARIZER_ENABLED", "1") == "1"
-# Prefer flan-t5-base if present, otherwise flan-t5-small.
-SUMMARIZER_MODEL_PATH = os.environ.get(
-    "SUMMARIZER_MODEL_PATH", str(MODELS_DIR / "flan-t5-base")
-)
-SUMMARIZER_FALLBACK_PATH = os.environ.get(
-    "SUMMARIZER_FALLBACK_PATH", str(MODELS_DIR / "flan-t5-small")
-)
-SUMMARIZER_MAX_INPUT_CHARS = int(os.environ.get("SUMMARIZER_MAX_INPUT_CHARS", "1200"))
-SUMMARIZER_MAX_NEW_TOKENS = int(os.environ.get("SUMMARIZER_MAX_NEW_TOKENS", "64"))
-# The abstractive model is optional: the extractive summarizer is instant and
-# never invents content. Enable the local model explicitly when its quality is
-# good enough on your hardware.
-SUMMARIZER_USE_MODEL = os.environ.get("SUMMARIZER_USE_MODEL", "0") == "1"
 SUMMARY_MIN_SEGMENTS = int(os.environ.get("SUMMARY_MIN_SEGMENTS", "4"))
 SUMMARY_MAX_SEGMENTS = int(os.environ.get("SUMMARY_MAX_SEGMENTS", "12"))
 SUMMARY_MIN_SPAN_MS = int(os.environ.get("SUMMARY_MIN_SPAN_MS", "15000"))
 
 # --- Person description (cumulative fact ledger) ---
-# 0 = deterministic claim extractor only (RECOMMENDED — never invents
-# facts). 1 = also try the local FLAN-T5 model for paraphrased/inferred
-# facts; the small model sometimes INVENTS details that were never said,
-# so this is off by default.
-DESCRIPTION_USE_MODEL = os.environ.get("DESCRIPTION_USE_MODEL", "0") == "1"
+# Deterministic claim extractor only — nothing enters a description unless
+# the person actually said it.
 DESCRIPTION_MAX_FACTS = int(os.environ.get("DESCRIPTION_MAX_FACTS", "8"))
 DESCRIPTION_MAX_CHARS = int(os.environ.get("DESCRIPTION_MAX_CHARS", "460"))
 

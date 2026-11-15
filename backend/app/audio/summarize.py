@@ -9,27 +9,18 @@ Designed for CPU-only, low-RAM hardware (the i3/8GB target). The default
 it ranks sentences by term frequency and keeps the most informative ones, so
 nothing is invented and no model must be loaded.
 
-A local abstractive backend (``LocalModelSummarizer``) is available for the
-live pipeline. It uses a pre-downloaded FLAN-T5 checkpoint, stays fully
-offline, and falls back to the extractive path when the model is missing or
-produces a weak result.
+Person descriptions are built by ``PersonDescriptionWriter`` from the
+cumulative fact ledger (``extract_self_claims``): deterministic, offline,
+and never invents content.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-import threading
-from pathlib import Path
 from typing import Optional
 
 from ..config import (
-    SUMMARIZER_MODEL_PATH,
-    SUMMARIZER_FALLBACK_PATH,
-    SUMMARIZER_MAX_INPUT_CHARS,
-    SUMMARIZER_MAX_NEW_TOKENS,
-    SUMMARIZER_USE_MODEL,
-    DESCRIPTION_USE_MODEL,
     DESCRIPTION_MAX_FACTS,
     DESCRIPTION_MAX_CHARS,
 )
@@ -539,6 +530,9 @@ class ConversationSummarizer:
         self.max_points_per_person = max_points_per_person
         self.max_words_per_point = max_words_per_point
         self.min_words_per_point = min_words_per_point
+        # Kept for pipeline logging compatibility; summarization is
+        # always extractive now.
+        self.model_version = "extractive"
 
     def summarize_by_person(
         self, segments_by_person: dict[str, list[str]]
@@ -670,411 +664,13 @@ class ConversationSummarizer:
         return False
 
 
-class LocalModelSummarizer:
-    """Offline FLAN-T5 summarizer for the live pipeline.
-
-    Loads a pre-downloaded checkpoint from ``data/models`` on first use (never
-    the network). If the model is missing, fails to load, or returns something
-    too weak, the extractive summarizer produces the key points instead.
-    """
-
-    def __init__(
-        self,
-        model_path: str = SUMMARIZER_MODEL_PATH,
-        fallback_path: str = SUMMARIZER_FALLBACK_PATH,
-        max_input_chars: int = SUMMARIZER_MAX_INPUT_CHARS,
-        max_new_tokens: int = SUMMARIZER_MAX_NEW_TOKENS,
-        max_points: int = 2,
-        use_model: bool = SUMMARIZER_USE_MODEL,
-    ) -> None:
-        self._explicit_path = model_path
-        self._fallback_path = fallback_path
-        self.max_input_chars = max_input_chars
-        self.max_new_tokens = max_new_tokens
-        self.max_points = max_points
-        self.use_model = use_model
-
-        self._extractive = ConversationSummarizer(max_points_per_person=max_points)
-        self._lock = threading.Lock()
-        self._tokenizer = None
-        self._model = None
-        self._attempted = False
-        self._model_path: Optional[str] = None
-        self.model_version = "unloaded"
-
-    def _resolve_path(self) -> Optional[str]:
-        for candidate in (self._explicit_path, self._fallback_path):
-            if candidate and Path(candidate).exists():
-                return candidate
-        return None
-
-    def _candidate_paths(self) -> list[str]:
-        seen: set[str] = set()
-        out: list[str] = []
-        for candidate in (self._explicit_path, self._fallback_path):
-            if candidate and candidate not in seen and Path(candidate).exists():
-                seen.add(candidate)
-                out.append(candidate)
-        return out
-
-    def _ensure_model(self) -> bool:
-        if self._model is not None:
-            return True
-        if self._attempted:
-            return False
-        with self._lock:
-            if self._model is not None:
-                return True
-            if self._attempted:
-                return False
-            self._attempted = True
-            candidates = self._candidate_paths()
-            if not candidates:
-                logger.warning(
-                    "Summarizer model not found (looked for %s and %s); "
-                    "using extractive fallback",
-                    self._explicit_path, self._fallback_path,
-                )
-                self.model_version = "extractive-fallback"
-                return False
-            for path in candidates:
-                try:
-                    import torch
-                    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
-                    torch.set_num_threads(max(1, min(2, torch.get_num_threads())))
-                    tok = AutoTokenizer.from_pretrained(path, local_files_only=True)
-                    model = AutoModelForSeq2SeqLM.from_pretrained(
-                        path, local_files_only=True
-                    )
-                    model.eval()
-                    self._tokenizer = tok
-                    self._model = model
-                    self._model_path = path
-                    self.model_version = f"flan-t5:{Path(path).name}"
-                    logger.info("Summarizer model loaded: %s", path)
-                    return True
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Could not load summarizer model at %s (%s); trying next",
-                        path, exc,
-                    )
-                    self._model = None
-            self.model_version = "extractive-fallback"
-        return self._model is not None
-
-    def is_loaded(self) -> bool:
-        return self._model is not None
-
-    def _prompt(self, text: str) -> str:
-        return (
-            "Write two short, warm, factual key points about what this "
-            "person said. Do not add new information or names.\n"
-            f"{text}\nKey points:"
-        )
-
-    def summarize(self, text: str) -> list[str]:
-        """Return 1-2 small key points for one person's utterances."""
-        text = re.sub(r"\s+", " ", (text or "")).strip()
-        if not text:
-            return []
-
-        if not self.use_model:
-            self.model_version = "extractive"
-            return self._extractive.summarize_text(text)
-
-        # Bound the input, preferring a sentence boundary.
-        if len(text) > self.max_input_chars:
-            cut = text[: self.max_input_chars]
-            boundary = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "))
-            text = cut[: boundary + 1] if boundary > 200 else cut
-
-        if not self._ensure_model() or self._tokenizer is None or self._model is None:
-            self.model_version = "extractive-fallback"
-            return self._extractive.summarize_text(text)
-
-        try:
-            import torch
-
-            enc = self._tokenizer(
-                self._prompt(text), return_tensors="pt", truncation=True, max_length=512
-            )
-            with torch.no_grad():
-                out = self._model.generate(
-                    **enc,
-                    max_new_tokens=self.max_new_tokens,
-                    num_beams=2,
-                    do_sample=False,
-                    no_repeat_ngram_size=3,
-                    repetition_penalty=1.15,
-                )
-            generated = self._tokenizer.decode(out[0], skip_special_tokens=True)
-            points = self._clean_points(generated)
-            if self._is_usable(points, text):
-                return points
-            logger.info("Model summary too weak; using extractive fallback")
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Summarization failed: %s", exc)
-
-        self.model_version = "extractive-fallback"
-        return self._extractive.summarize_text(text)
-
-    def _clean_points(self, generated: str) -> list[str]:
-        text = (generated or "").strip()
-        lower = text.lower()
-        for prefix in ("key points:", "summary:", "answer:", "output:"):
-            if lower.startswith(prefix):
-                text = text[len(prefix):].strip()
-                lower = text.lower()
-        parts = [p.strip(" -•\t") for p in _SENTENCE_SPLIT.split(text) if p.strip()]
-        points: list[str] = []
-        for part in parts[: self.max_points]:
-            words = _WORD_RE.findall(part)
-            if len(words) < 3:
-                continue
-            points.append(part if part[-1] in ".!?" else part + ".")
-        return points
-
-    @staticmethod
-    def _is_usable(points: list[str], source: str) -> bool:
-        """Reject empty, copied, or clearly malformed generations."""
-        if not points:
-            return False
-        source_words = set(_WORD_RE.findall(source.lower()))
-        point_words = set()
-        for p in points:
-            point_words.update(_WORD_RE.findall(p.lower()))
-        if len(point_words) < 4:
-            return False
-        # A pure copy of the input is not a summary.
-        if point_words and point_words <= source_words and len(point_words) > 25:
-            return False
-        return True
-
-
 class PersonDescriptionWriter:
-    """Writes a short, human description of a person from their key points.
+    """Builds a person's cumulative description from their fact ledger.
 
-    Goal: replace "Introduced by voice: ..." with something like
-    "Talked about the hackathon he went to where he got 3rd place."
-
-    Uses a local FLAN-T5 checkpoint (from ``data/models``) when available,
-    and falls back to a deterministic template that composes the same kind
-    of sentence from the key points. Both paths stay fully offline.
+    Deterministic only: facts come from ``extract_self_claims`` (the claim
+    extractor). Nothing is ever invented — a fact enters a person's
+    description only if the person actually stated it.
     """
-
-    def __init__(
-        self,
-        model_path: str = SUMMARIZER_MODEL_PATH,
-        fallback_path: str = SUMMARIZER_FALLBACK_PATH,
-    ) -> None:
-        self._explicit_path = model_path
-        self._fallback_path = fallback_path
-        self._tokenizer = None
-        self._model = None
-        self._attempted = False
-        self._lock = threading.Lock()
-        self.model_version = "extractive"
-
-    def _ensure_model(self) -> bool:
-        if self._model is not None:
-            return True
-        if self._attempted:
-            return False
-        with self._lock:
-            if self._model is not None:
-                return True
-            if self._attempted:
-                return False
-            self._attempted = True
-            for path in (self._explicit_path, self._fallback_path):
-                if not path or not Path(path).exists():
-                    continue
-                try:
-                    import torch
-                    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
-                    torch.set_num_threads(max(1, min(2, torch.get_num_threads())))
-                    tok = AutoTokenizer.from_pretrained(path, local_files_only=True)
-                    model = AutoModelForSeq2SeqLM.from_pretrained(
-                        path, local_files_only=True
-                    )
-                    model.eval()
-                    self._tokenizer = tok
-                    self._model = model
-                    self.model_version = f"flan-t5:{Path(path).name}"
-                    logger.info("Description model loaded: %s", path)
-                    return True
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning(
-                        "Could not load description model at %s (%s); trying next",
-                        path, exc,
-                    )
-                    self._model = None
-            self.model_version = "extractive"
-        return self._model is not None
-
-    # ------------------------------------------------------------ internals ---
-
-    def _prompt(self, name: str, points: list[str]) -> str:
-        notes = "; ".join(points)
-        return (
-            "Write one short sentence about what this person talked about. "
-            "Write it like a friendly note about them, under 20 words.\n"
-            f"{name} said: {notes}\n"
-            "Sentence:"
-        )
-
-    def _model_write(self, name: str, points: list[str]) -> str:
-        import torch
-
-        enc = self._tokenizer(
-            self._prompt(name, points), return_tensors="pt", truncation=True,
-            max_length=512,
-        )
-        with torch.no_grad():
-            out = self._model.generate(
-                **enc,
-                max_new_tokens=40,
-                num_beams=2,
-                do_sample=False,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.15,
-            )
-        text = self._tokenizer.decode(out[0], skip_special_tokens=True)
-        text = (text or "").strip()
-        lower = text.lower()
-        for prefix in ("sentence:", "description:", "answer:", "summary:"):
-            if lower.startswith(prefix):
-                text = text[len(prefix):].strip()
-        words = _WORD_RE.findall(text)
-        if len(words) < 4 or len(words) > 35:
-            return ""
-        if text and text[-1] not in ".!?":
-            text += "."
-        return text
-
-    # ------------------------------------------------------------- template ---
-
-    def _topic_fragment(self, name: str, point: str) -> str:
-        """Turn a key point into a topic fragment ("coming for dinner")."""
-        t = re.sub(r"\s+", " ", (point or "").strip())
-        t = t.rstrip(".!?; ")
-        name_l = (name or "").lower().strip()
-        # Drop a leading mention of the person's own name ("Mary is coming").
-        if name_l and t.lower().startswith(name_l):
-            t = t[len(name_l):].lstrip(" ,'’-")
-        # Drop leading auxiliaries left behind ("is coming" -> "coming").
-        t = re.sub(
-            r"^(?:is|are|was|were|has|have|had|likes|liked|loves|loved|wants|"
-            r"wanted|talked about|talks about|told me|mentioned|said)\s+",
-            "", t, flags=re.IGNORECASE,
-        )
-        if not t:
-            return ""
-        # Lowercase the first word so it reads naturally inside a sentence.
-        if len(t) > 1 and t[1:2].islower() or len(t) == 1:
-            t = t[0].lower() + t[1:]
-        return t
-
-    def _compose(self, name: str, points: list[str]) -> str:
-        topics: list[str] = []
-        seen: set[str] = set()
-        for p in points[:3]:
-            frag = self._topic_fragment(name, p)
-            if not frag or frag.lower() in seen:
-                continue
-            seen.add(frag.lower())
-            topics.append(frag)
-        if not topics:
-            return ""
-        if len(topics) == 1:
-            return f"Talked about {topics[0]}."
-        head = ", ".join(topics[:-1])
-        return f"Talked about {head} and {topics[-1]}."
-
-    # --------------------------------------------------------------- public ---
-
-    def _strip_leading_name(self, name: str, text: str) -> str:
-        """Drop a leading "{name} ..." so descriptions read like a note."""
-        t = (text or "").strip()
-        # Drop leading connectives the LLM sometimes starts with.
-        t = re.sub(r"^(?:and|also|but|so|then)\s+", "", t, flags=re.IGNORECASE)
-        name_l = (name or "").lower().strip()
-        if name_l and t.lower().startswith(name_l):
-            rest = t[len(name_l):]
-            if rest[:2] in ("'s", "\u2019s"):
-                rest = rest[2:]
-            rest = rest.strip(" ,'’-")
-            if rest:
-                t = rest
-        if t:
-            t = t[0].upper() + t[1:]
-        return t
-
-    def write(self, name: str, points: list[str]) -> str:
-        """Return one short description sentence from the person's key points."""
-        pts = [re.sub(r"\s+", " ", (p or "").strip()) for p in points]
-        pts = [p for p in pts if p]
-        if not pts:
-            return ""
-        if self._ensure_model() and self._tokenizer is not None and self._model is not None:
-            try:
-                text = self._model_write(name, pts[:3])
-                if text:
-                    self.model_version = self.model_version or "flan-t5"
-                    return self._strip_leading_name(name, text)
-                logger.info("Description model output too weak; using template")
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("Description generation failed: %s", exc)
-        return self._strip_leading_name(name, self._compose(name, pts))
-
-    # ------------------------------------------------ cumulative facts ---
-
-    def _model_facts(
-        self, name: str, utterances: list[str], pronoun: Optional[str]
-    ) -> list[str]:
-        """Extract fact candidates from speech with the local model."""
-        import torch
-
-        joined = join_utterances(utterances)[:SUMMARIZER_MAX_INPUT_CHARS]
-        prompt = (
-            f"List short facts about {name}, extracted from what {name} said "
-            f"about {('himself' if (pronoun or 'He').lower() == 'he' else 'herself')}. "
-            "One fact per line, under 10 words each, third person only.\n"
-            f"{name} said: {joined}\n"
-            "Facts:"
-        )
-        enc = self._tokenizer(
-            prompt, return_tensors="pt", truncation=True, max_length=512
-        )
-        with torch.no_grad():
-            out = self._model.generate(
-                **enc,
-                max_new_tokens=70,
-                num_beams=2,
-                do_sample=False,
-                no_repeat_ngram_size=3,
-                repetition_penalty=1.15,
-            )
-        raw = self._tokenizer.decode(out[0], skip_special_tokens=True)
-        facts: list[str] = []
-        for line in re.split(r"[\n;]+", raw or ""):
-            f = re.sub(r"^\s*[-*\u2022\d.)\s]+", "", (line or "").strip())
-            f = self._strip_leading_name(name, f)
-            f = _norm_fact(f)
-            # Normalise the subject to the person's NAME so facts stay
-            # correct regardless of when their gender becomes known:
-            #   "is a mathematician" / "He is a chess player"
-            #       -> "{name} is a mathematician" / "{name} is a chess player"
-            if re.match(r"^is\s+", f, flags=re.IGNORECASE):
-                f = f"{name} {f[0].lower()}{f[1:]}"
-            elif re.match(r"^(?:he|she)\s+", f, flags=re.IGNORECASE) and name:
-                # "He is a chess player" -> "{name} is a chess player"
-                f = f"{name} {f[3:]}"
-            if f:
-                facts.append(f)
-        return facts
 
     def _fact_ok(self, fact: str, known: list[str]) -> bool:
         """A fact must be short, third-person, and genuinely new."""
@@ -1097,34 +693,19 @@ class PersonDescriptionWriter:
         utterances: list[str],
         known_facts: Optional[list[str]] = None,
         pronoun: Optional[str] = None,
-        use_model: bool = True,
     ) -> list[str]:
         """Extract new facts a person stated about themselves.
 
         Facts are returned with the person's NAME as the subject
         ("Sarah is a mathematician"); the pronoun is applied at render
-        time. ``pronoun`` is only used to steer the model prompt.
-
-        When ``DESCRIPTION_USE_MODEL=1`` and the checkpoint loads, the
-        model proposes facts first; the deterministic
-        ``extract_self_claims`` extractor always runs alongside as the
-        reliable fallback. Returns only facts that are not
-        near-duplicates of ``known_facts``.
+        time. Returns only facts that are not near-duplicates of
+        ``known_facts``.
         """
         utterances = [u for u in (utterances or []) if u and u.strip()]
         known = list(known_facts or [])
         found: list[str] = []
 
-        if use_model and DESCRIPTION_USE_MODEL:
-            if self._ensure_model() and self._tokenizer is not None:
-                try:
-                    found.extend(self._model_facts(name, utterances, pronoun))
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Model fact extraction failed: %s", exc)
-            else:
-                logger.info("Description model unavailable; claim extractor only")
-
-        # Deterministic extractor always runs (fallback + complement).
+        # Deterministic claim extractor — the sole fact source.
         subject = (name or "").strip() or (pronoun or "He")
         for utt in utterances:
             found.extend(extract_self_claims(utt, subject=subject))
@@ -1133,10 +714,6 @@ class PersonDescriptionWriter:
         seen: set[str] = set()
         accepted = list(known)
         for f in found:
-            # _fact_ok also near-duplicate-checks against accepted, so
-            # model variants like "He is a mathematician and the son of
-            # Watkins" collapse into the deterministic "He is a
-            # mathematician" + "Son of Watkins" instead of piling up.
             if not self._fact_ok(f, accepted):
                 continue
             key = f.lower()

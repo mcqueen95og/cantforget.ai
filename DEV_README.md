@@ -89,7 +89,7 @@ latest face tracks to link a speaker with a face) and the **database**.
 | VAD | Silero (ONNX via `sherpa-onnx`… see `vad.py`) | `silero_vad.onnx` | threshold 0.35, min speech 200 ms |
 | Speech-to-text | `faster-whisper` (CTranslate2) | auto-downloaded `tiny` | int8, CPU, beam_size 1, 2 threads |
 | Speaker embedding | 3D-Speaker ERes2Net (ONNX) | `speaker/eres2net.onnx` | 512-d embeddings, centroid clustering |
-| Summarisation | extractive (built-in) or FLAN-T5 | `flan-t5-small/` (optional) | `SUMMARIZER_USE_MODEL=1` enables the model |
+| Summarisation | extractive (built-in) | — | ranks sentences by term frequency; never invents content |
 | Conversation intelligence | LLM-with-extractive-fallback (`intelligence.py`) | — | works fully offline without an LLM |
 | Frontend | vanilla ES modules, no build step | — | `index.html` + `js/*` + `css/main.css` |
 
@@ -107,9 +107,7 @@ latest face tracks to link a speaker with a face) and the **database**.
 | `faster-whisper` | CTranslate2 Whisper speech-to-text | `audio/asr.py` |
 | `sherpa-onnx` | ONNX speaker-embedding model runtime (ERes2Net) | `audio/diarize.py`, `audio/enrollment.py` |
 | `silero-vad` | voice-activity-detection model + runtime | `audio/vad.py` |
-| `torch` | runtime for the FLAN-T5 description/summary model | `audio/summarize.py` |
-| `transformers` | loads FLAN-T5 tokenizer + model (also pulls `huggingface_hub`, used for model download) | `audio/summarize.py` |
-| `sentencepiece` | FLAN-T5 tokenizer backend | loaded automatically |
+| `torch` | Silero VAD runtime | `audio/vad.py` |
 | `pytest` (dev) | test runner | `tests/` |
 
 Everything runs CPU-only; no CUDA/GPU is required or used.
@@ -185,8 +183,8 @@ One `AudioPipeline` per session id, created lazily by
 ≥ `SUMMARY_MIN_SEGMENTS (4)` segments spanning ≥ `SUMMARY_MIN_SPAN_MS (15 s)`
 (or ≥ `SUMMARY_MAX_SEGMENTS (12)`) are pending, `_run_summary` runs
 `_flush_summary` in the background: utterances are joined per speaker and
-summarised by `LocalModelSummarizer` (FLAN-T5 if `SUMMARIZER_USE_MODEL=1` and
-the model exists, otherwise instant extractive) plus
+summarised by `ConversationSummarizer` (instant, extractive — sentences are
+ranked by term frequency, so nothing is invented) plus
 `PersonDescriptionWriter`, which keeps a rolling per-person description in the
 DB. Everything heavy runs through `asyncio.to_thread`.
 
@@ -221,7 +219,7 @@ facts that grows with every conversation. Data flow:
 finalised sentence ──► extract_self_claims()        deterministic, every sentence
                             │  (regex claim extractor, third-person facts)
 summary batch      ──► PersonDescriptionWriter.write_facts()
-                            │  model FIRST (FLAN-T5), extractor always as well
+                            │  deterministic claim extractor only
                             ▼
                     db.add_person_fact(uid, fact, source)   ← person_facts table
                             │  exact-duplicate check; near-dup check at extraction
@@ -246,23 +244,14 @@ summary batch      ──► PersonDescriptionWriter.write_facts()
   the relationship tag reveals it ("She is a mathematician"), which also
   retroactively fixes facts written before the tag was known. Unknown
   gender → the name is kept, which is always correct.
-- **Model path** (`PersonDescriptionWriter.write_facts`): FLAN-T5 is
-  prompted for third-person fact lines; output is validated (length,
-  no first/second person), normalised to a name-subject, and
-  near-duplicate-checked against the ledger. **OFF by default**
-  (`DESCRIPTION_USE_MODEL=0`): the small model sometimes *invents* facts
-  that were never said; enable only if the paraphrase value outweighs
-  that risk. The deterministic extractor always runs, so the description
-  works fully without the model.
 - **Ledger** (`person_facts` table): `person_uid, fact, source
-  ('model'|'claim'|'intro'), session_id, created_at`, exact-duplicate-proof,
+  ('claim'|'intro'), session_id, created_at`, exact-duplicate-proof,
   cascading delete with the person. `add_person_fact` / `list_person_facts`
   (limit keeps the most recent) / `count_person_facts` in `db.py`.
 - **Rendering**: `render_description()` joins bullets oldest-first; the
   card (`face-overlay.js: wrapFactLines`) renders one bullet per line
   (≤6 lines), the People tab uses `white-space: pre-line`.
-- **Config**: `DESCRIPTION_USE_MODEL` (default 1), `DESCRIPTION_MAX_FACTS`
-  (8), `DESCRIPTION_MAX_CHARS` (460).
+- **Config**: `DESCRIPTION_MAX_FACTS` (8), `DESCRIPTION_MAX_CHARS` (460).
 
 ### 4.7 Face-path responsiveness (i3 constraint)
 
@@ -402,7 +391,7 @@ list):
 | Whisper | `WHISPER_MODEL` (default `tiny`), `WHISPER_LANGUAGE` (default *auto-detect*, `""`), `WHISPER_CPU_THREADS` (default 2), `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE` |
 | VAD / diarisation | `VAD_*`, `DIARIZATION_*`, `VOICE_ENROLL_*`, `VOICE_SIMILARITY_THRESHOLD`, `VOICE_ASSOC_*` |
 | Summaries | `SUMMARIZER_*`, `SUMMARY_*` |
-| Description engine | `DESCRIPTION_USE_MODEL` (0 = extractor only, never invents — recommended), `DESCRIPTION_MAX_FACTS` (8), `DESCRIPTION_MAX_CHARS` (460) |
+| Description engine | `DESCRIPTION_MAX_FACTS` (8), `DESCRIPTION_MAX_CHARS` (460) |
 | Storage / server | `DB_PATH` (default `data/cantforget.db`), `HOST`, `PORT` |
 
 **Hardware budget note.** The reference machine is an Intel i3-5005U
@@ -427,9 +416,9 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 ```
 
 Each script: checks Python ≥ 3.10, creates `.venv`, installs every library
-from `requirements.txt`, downloads the four model files (YuNet, SFace,
-Silero-VAD, ERes2Net) into `data/models/` and — best effort — the FLAN-T5
-description model. They are idempotent: existing files are not re-downloaded.
+from `requirements.txt`, and downloads the four model files (YuNet, SFace,
+Silero-VAD, ERes2Net) into `data/models/`. They are idempotent: existing
+files are not re-downloaded.
 
 ### Manual run
 
