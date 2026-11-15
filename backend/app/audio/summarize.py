@@ -29,6 +29,9 @@ from ..config import (
     SUMMARIZER_MAX_INPUT_CHARS,
     SUMMARIZER_MAX_NEW_TOKENS,
     SUMMARIZER_USE_MODEL,
+    DESCRIPTION_USE_MODEL,
+    DESCRIPTION_MAX_FACTS,
+    DESCRIPTION_MAX_CHARS,
 )
 
 logger = logging.getLogger("cantforget.audio.summarize")
@@ -102,6 +105,16 @@ _COMMON_FILLERS = frozenset(
         "ready", "busy", "free", "sure", "right", "wrong", "new", "old",
         "one", "two", "first", "last", "just", "only", "very", "really",
         "trying", "going", "coming", "looking", "thinking", "calling",
+        # Prepositions / question words that otherwise become "names"
+        # ("I'm from Canada" must not create a person named "From").
+        "from", "with", "about", "near", "by", "of", "off", "out", "up",
+        "down", "over", "under", "into", "onto", "how", "what", "why",
+        "when", "where", "who", "whom", "which",
+        # Common self-states, so "I'm retired" never registers a person.
+        "retired", "married", "single", "widow", "widower", "divorced",
+        "alone", "sick", "ill", "better", "worse", "cold", "hot", "thirsty",
+        "well", "glad", "upset", "angry", "scared", "afraid", "bored",
+        "lonely", "confused", "sleepy", "done", "lost", "hurt", "weak",
     }
 )
 
@@ -168,6 +181,15 @@ def extract_person_intro(text: str) -> Optional[dict]:
             # not become a person named "Your" or a name-less role match).
             if name.lower() in _RELATIONSHIP_WORDS:
                 continue
+            # Skip article-consumed descriptions ("I'm a mathematician",
+            # "I'm the son of Watkins"): the word after a/an/the is a
+            # description, not a name.
+            if re.search(
+                r"\bI(?:\u2019m|'m|\s+am|im)\s+(?:a\s+|an\s+|the\s+)"
+                + re.escape(name) + r"\b",
+                text, flags=re.IGNORECASE,
+            ):
+                continue
             found["name"] = name
             break
 
@@ -187,6 +209,271 @@ def extract_person_intro(text: str) -> Optional[dict]:
             break
 
     return found or None
+
+
+# --------------------------------------------------------------------------
+# Self-claim extraction: turn what a person says about themselves
+# ("I'm a mathematician and the son of Watkins") into short third-person
+# facts ("He is a mathematician", "Son of Watkins") for their profile.
+# Deterministic, offline, instant — the fallback half of the description
+# engine (the model half lives in PersonDescriptionWriter.write_facts).
+# --------------------------------------------------------------------------
+
+_PREDICATE_PAT = re.compile(
+    r"\bI(?:\u2019m|'m|\s+am|\s+was|im)?\s+(?P<pred>[^.!?\n]{2,140})",
+    re.IGNORECASE,
+)
+_ROLE_OF_PAT = re.compile(
+    r"^(?:the\s+|your\s+)?"
+    r"(?P<role>son|daughter|wife|husband|father|mother|brother|sister|"
+    r"grandson|granddaughter|grandmother|grandfather|grandma|grandpa|"
+    r"uncle|aunt|auntie|nephew|niece|cousin|friend|partner|carer|"
+    r"neighbour|neighbor)\s+of\s+"
+    r"(?P<who>[A-Za-z][A-Za-z'\u2019\-]*(?:\s+[A-Z][A-Za-z'\u2019\-]*)?)",
+    re.IGNORECASE,
+)
+_YOUR_ROLE_PAT = re.compile(
+    r"^your\s+(?P<role>[A-Za-z'\u2019\-]{2,30})$", re.IGNORECASE,
+)
+_ARTICLE_NOUN_PAT = re.compile(
+    r"^(?:a|an|the)\s+(?P<noun>[a-z][\w\s'\u2019\-]{1,50})$", re.IGNORECASE,
+)
+_FROM_PAT = re.compile(r"^from\s+(?P<place>[a-z][\w\s'\u2019\-]{1,30})$", re.IGNORECASE)
+_AGE_PAT = re.compile(r"^(?P<age>\d{1,3})\s*(?:years?|yrs?)?\s*(?:old)?$")
+_WORK_PAT = re.compile(
+    r"\bI\s+(?:am\s+)?work(?:ing|s)?\s+(?:as\s+|at\s+|for\s+)?"
+    r"(?P<what>[a-z][\w\s'\u2019\-]{2,50}?)(?=[,.!?;:]|$|\s+and\b)",
+    re.IGNORECASE,
+)
+_LIVE_PAT = re.compile(
+    r"\bI\s+live\s+in\s+(?P<where>[a-z][\w\s'\u2019\-]{1,30}?)"
+    r"(?=[,.!?;:]|\s+(?:and|but|also)\b|$)",
+    re.IGNORECASE,
+)
+_ENJOY_PAT = re.compile(
+    r"\bI\s+(?:really\s+|absolutely\s+|just\s+)?(?P<verb>like|love|enjoy)\s+"
+    r"(?P<what>[a-z][\w\s'\u2019\-]{2,40}?)"
+    r"(?=[,.!?;:]|\s+(?:and|but|also)\b|$)",
+    re.IGNORECASE,
+)
+_HAVE_PAT = re.compile(
+    r"\bI\s+have\s+(?P<what>(?:a|an|the)?\s*[a-z][\w\s'\u2019\-]{1,40}?)"
+    r"(?=[,.!?;:]|\s+(?:and|but|also)\b|$)",
+    re.IGNORECASE,
+)
+# "I have X" contents that must not become facts ("I have no idea").
+_HAVE_JUNK = frozenset(
+    {
+        "no idea", "idea", "an idea", "a question", "question", "a doubt",
+        "doubt", "fun", "time", "a minute", "a second", "a moment",
+        "a go", "to go", "to come", "to do", "to say", "to ask",
+        "no clue", "clue", "a clue",
+    }
+)
+# Compound first-person sentences: split at clause boundaries that begin a
+# new statement, so "I'm a mathematician and I have dementia" yields two
+# facts instead of being swallowed by one predicate.
+_CLAUSE_SPLIT = re.compile(
+    r"(?=\bI(?:\u2019m|'m|\s+am|\s+have|\s+work|\s+live|\s+like|\s+love|"
+    r"\s+enjoy|\s+was|\s+from)\b)",
+    re.IGNORECASE,
+)
+_CLAUSE_LEAD = re.compile(r"^(?:\s*(?:,|and|but|also)\s+)+", re.IGNORECASE)
+# First-person tokens that must never appear inside a stored fact.
+_FIRST_PERSON = re.compile(
+    r"\b(?:i|i'm|im|i\u2019m|am|my|mine|me|we|our|us)\b", re.IGNORECASE,
+)
+# Second-person / question fragments ("how are you") are never facts.
+_SECOND_PERSON = re.compile(
+    r"\b(?:you|your|you're|you\u2019re|u|how|what|why|when|where|who)\b",
+    re.IGNORECASE,
+)
+# Fragments starting with these verbs are handled by dedicated patterns
+# ("I live in Delhi") or are not facts at all ("I think it's late").
+_VERB_START = frozenset(
+    {
+        "live", "lives", "work", "works", "working", "like", "likes",
+        "love", "loves", "enjoy", "enjoys", "have", "has", "had", "want",
+        "wants", "think", "know", "feel", "felt", "get", "got", "do",
+        "does", "did", "make", "made", "come", "came", "go", "went",
+        "going", "need", "see", "saw", "been", "being", "tell", "told",
+        "say", "said", "speak", "spoke", "call", "called", "try", "tried",
+    }
+)
+_FACT_SPLIT = re.compile(r",|\band\b|\balso\b", re.IGNORECASE)
+
+
+def _norm_fact(text: str) -> str:
+    return " ".join((text or "").split()).strip().strip(" .,-")
+
+
+def extract_self_claims(text: str, pronoun: str = "He") -> list[str]:
+    """Extract third-person facts from first-person statements.
+
+    Examples (pronoun "He"):
+        "Hi, I'm Rahul."                        -> "He is Rahul"
+        "I'm a mathematician"                   -> "He is a mathematician"
+        "I'm a mathematician and the son of
+         Watkins"                               -> "He is a mathematician",
+                                                   "Son of Watkins"
+        "I'm your son"                          -> "He is your son"
+        "I work as a teacher"                   -> "He works as a teacher"
+        "I live in Delhi" / "I'm from Delhi"    -> "He lives in Delhi" /
+                                                   "He is from Delhi"
+        "I like chess"                          -> "He likes chess"
+        "I'm 70 years old"                      -> "He is 70 years old"
+
+    Returns a list of short fact strings (without bullet markers). Junk
+    ("I'm fine", "I'm here") is rejected via the filler word list.
+    """
+    if not text:
+        return []
+    facts: list[str] = []
+    pron = (pronoun or "He").strip().capitalize() or "He"
+
+    def accept(fact: str) -> None:
+        fact = _norm_fact(fact)
+        if not fact:
+            return
+        words = _WORD_RE.findall(fact)
+        if not 2 <= len(words) <= 14:
+            return
+        if _FIRST_PERSON.search(fact):
+            return
+        # Reject pure filler content ("He is fine", "He is here").
+        tail = fact
+        for lead in (f"{pron} is", f"{pron} are", f"{pron} was"):
+            if tail.lower().startswith(lead.lower()):
+                tail = tail[len(lead):].strip()
+                break
+        tail_key = tail.lower().strip(".,'-")
+        if not tail_key or tail_key in _COMMON_FILLERS:
+            return
+        facts.append(fact[0].upper() + fact[1:] if fact[:1].islower() else fact)
+
+    # A stated name is a fact too ("Hi, I'm Rahul" -> "He is Rahul").
+    intro = extract_person_intro(text)
+    if intro and intro.get("name"):
+        accept(f"{pron} is {intro['name']}")
+
+    # Compound sentences are split at each new first-person statement, so
+    # "I'm a mathematician and I have dementia" produces both facts.
+    clauses = [
+        _CLAUSE_LEAD.sub("", piece).strip()
+        for piece in _CLAUSE_SPLIT.split(text)
+    ]
+    for clause in clauses:
+        if not clause:
+            continue
+        for m in _WORK_PAT.finditer(clause):
+            what = _norm_fact(m.group("what"))
+            if what and what.lower() not in _COMMON_FILLERS:
+                accept(f"{pron} works as {what}")
+        for m in _LIVE_PAT.finditer(clause):
+            where = _clean_capture(m.group("where"))
+            if where:
+                accept(f"{pron} lives in {where}")
+        for m in _ENJOY_PAT.finditer(clause):
+            what = _norm_fact(m.group("what"))
+            verb = m.group("verb").lower()
+            maps = {"like": "likes", "love": "loves", "enjoy": "enjoys"}
+            if what and what.lower() not in _COMMON_FILLERS:
+                accept(f"{pron} {maps[verb]} {what}")
+        for m in _HAVE_PAT.finditer(clause):
+            what = _norm_fact(m.group("what"))
+            if not what:
+                continue
+            what_key = re.sub(r"^(?:a|an|the)\s+", "", what.lower()).strip()
+            if (
+                what.lower() in _HAVE_JUNK
+                or what_key in _HAVE_JUNK
+                or what_key in _COMMON_FILLERS
+                or what.lower().startswith("to ")
+            ):
+                continue
+            accept(f"{pron} has {what}")
+
+        # "I'm/I am <predicate>" — split the predicate and classify fragments,
+        # so "I'm a mathematician and the son of Watkins" yields both facts.
+        for m in _PREDICATE_PAT.finditer(clause):
+            pred = m.group("pred").strip()
+            if not pred:
+                continue
+            for frag in _FACT_SPLIT.split(pred):
+                frag = _norm_fact(frag)
+                if not frag:
+                    continue
+                rm = _ROLE_OF_PAT.match(frag)
+                if rm:
+                    role = _clean_capture(rm.group("role"))
+                    who = _clean_capture(rm.group("who"))
+                    if role and who and who.lower() not in _COMMON_FILLERS:
+                        accept(f"{role} of {who}")
+                    continue
+                ym = _YOUR_ROLE_PAT.match(frag)
+                if ym:
+                    role = ym.group("role").lower().strip("'-")
+                    if role in _RELATIONSHIP_WORDS:
+                        accept(f"{pron} is your {role}")
+                    continue
+                am = _AGE_PAT.match(frag)
+                if am:
+                    age = int(am.group("age"))
+                    if 1 <= age <= 120:
+                        accept(f"{pron} is {age} years old")
+                    continue
+                fm = _FROM_PAT.match(frag)
+                if fm:
+                    place = _clean_capture(fm.group("place"))
+                    if place and place.lower() not in _COMMON_FILLERS:
+                        accept(f"{pron} is from {place}")
+                    continue
+                nm = _ARTICLE_NOUN_PAT.match(frag)
+                if nm:
+                    noun = _norm_fact(nm.group("noun"))
+                    if noun and noun.lower() not in _COMMON_FILLERS:
+                        accept(f"{pron} is a {noun}")
+                    continue
+                # Bare fragment: a name ("Rahul"), a state ("retired"), etc.
+                words = frag.split()
+                first = words[0].lower().strip("'-") if words else ""
+                if (
+                    len(words) <= 3
+                    and first not in _VERB_START
+                    and frag.lower() not in _COMMON_FILLERS
+                    and not _SECOND_PERSON.search(frag)
+                ):
+                    frag_c = _clean_capture(frag)
+                    if frag_c and frag_c.lower() not in _COMMON_FILLERS:
+                        accept(f"{pron} is {frag_c}")
+
+    # Deduplicate while preserving order.
+    seen: set[str] = set()
+    out: list[str] = []
+    for f in facts:
+        key = f.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(f)
+    return out
+
+
+def render_description(
+    facts: list[str], max_facts: int = 8, max_chars: int = 460
+) -> str:
+    """Render the fact ledger as bullet lines for ``persons.description``."""
+    lines: list[str] = []
+    total = 0
+    for f in facts:
+        f = _norm_fact(f)
+        if not f:
+            continue
+        line = f"- {f}"
+        if len(lines) >= max_facts or total + len(line) + 1 > max_chars:
+            break
+        lines.append(line)
+        total += len(line) + 1
+    return "\n".join(lines)
 
 
 def join_utterances(texts: list[str]) -> str:
@@ -718,3 +1005,109 @@ class PersonDescriptionWriter:
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Description generation failed: %s", exc)
         return self._strip_leading_name(name, self._compose(name, pts))
+
+    # ------------------------------------------------ cumulative facts ---
+
+    def _model_facts(
+        self, name: str, utterances: list[str], pronoun: str
+    ) -> list[str]:
+        """Extract fact candidates from speech with the local model."""
+        import torch
+
+        joined = join_utterances(utterances)[:SUMMARIZER_MAX_INPUT_CHARS]
+        prompt = (
+            f"List short facts about {name}, extracted from what {name} said "
+            f"about {('himself' if pronoun.lower() == 'he' else 'herself')}. "
+            "One fact per line, under 10 words each, third person only.\n"
+            f"{name} said: {joined}\n"
+            "Facts:"
+        )
+        enc = self._tokenizer(
+            prompt, return_tensors="pt", truncation=True, max_length=512
+        )
+        with torch.no_grad():
+            out = self._model.generate(
+                **enc,
+                max_new_tokens=70,
+                num_beams=2,
+                do_sample=False,
+                no_repeat_ngram_size=3,
+                repetition_penalty=1.15,
+            )
+        raw = self._tokenizer.decode(out[0], skip_special_tokens=True)
+        facts: list[str] = []
+        for line in re.split(r"[\n;]+", raw or ""):
+            f = re.sub(r"^\s*[-*\u2022\d.)\s]+", "", (line or "").strip())
+            f = self._strip_leading_name(name, f)
+            f = _norm_fact(f)
+            # "is a mathematician" -> "He is a mathematician"
+            if re.match(r"^is\s+", f, flags=re.IGNORECASE):
+                f = f"{pronoun} {f[0].lower()}{f[1:]}"
+            if f:
+                facts.append(f)
+        return facts
+
+    def _fact_ok(self, fact: str, known: list[str]) -> bool:
+        """A fact must be short, third-person, and genuinely new."""
+        fact = _norm_fact(fact)
+        if not fact:
+            return False
+        words = _WORD_RE.findall(fact)
+        if not 2 <= len(words) <= 14:
+            return False
+        if _FIRST_PERSON.search(fact):
+            return False
+        for k in known or []:
+            if ConversationSummarizer._is_near_duplicate(fact, [k], 0.6):
+                return False
+        return True
+
+    def write_facts(
+        self,
+        name: str,
+        utterances: list[str],
+        known_facts: Optional[list[str]] = None,
+        pronoun: str = "He",
+        use_model: bool = True,
+    ) -> list[str]:
+        """Extract new facts a person stated about themselves.
+
+        Model-first (when DESCRIPTION_USE_MODEL=1 and the checkpoint loads),
+        with the deterministic ``extract_self_claims`` fallback — which also
+        always runs alongside the model to catch what it misses. Returns
+        only facts that are not near-duplicates of ``known_facts``.
+        """
+        utterances = [u for u in (utterances or []) if u and u.strip()]
+        known = list(known_facts or [])
+        found: list[str] = []
+
+        if use_model and DESCRIPTION_USE_MODEL:
+            if self._ensure_model() and self._tokenizer is not None:
+                try:
+                    found.extend(self._model_facts(name, utterances, pronoun))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Model fact extraction failed: %s", exc)
+            else:
+                logger.info("Description model unavailable; claim extractor only")
+
+        # Deterministic extractor always runs (fallback + complement).
+        for utt in utterances:
+            found.extend(extract_self_claims(utt, pronoun=pronoun))
+
+        out: list[str] = []
+        seen: set[str] = set()
+        accepted = list(known)
+        for f in found:
+            # _fact_ok also near-duplicate-checks against accepted, so
+            # model variants like "He is a mathematician and the son of
+            # Watkins" collapse into the deterministic "He is a
+            # mathematician" + "Son of Watkins" instead of piling up.
+            if not self._fact_ok(f, accepted):
+                continue
+            key = f.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            accepted.append(f)
+            out.append(f)
+        return out

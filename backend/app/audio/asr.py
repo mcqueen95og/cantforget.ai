@@ -40,7 +40,7 @@ class WhisperASR:
         model_size: str = "tiny",
         device: str = "cpu",
         compute_type: str = "int8",
-        cpu_threads: int = 4,
+        cpu_threads: int = 2,
     ) -> None:
         self.model_size = model_size
         self.device = device
@@ -48,7 +48,7 @@ class WhisperASR:
         self._model: Optional[WhisperModel] = None
         self._load(cpu_threads)
 
-    def _load(self, cpu_threads: int = 4) -> None:
+    def _load(self, cpu_threads: int = 2) -> None:
         try:
             self._model = WhisperModel(
                 self.model_size,
@@ -91,7 +91,7 @@ class WhisperASR:
             segments, info = self._model.transcribe(
                 audio,
                 language=language,
-                beam_size=5,  # Beam search: noticeably better accuracy on CPU
+                beam_size=1,  # Greedy: beam=5 is 3-4x slower and starves a 2-core CPU
                 vad_filter=False,  # We already do VAD separately
                 condition_on_previous_text=False,  # Independent segments
             )

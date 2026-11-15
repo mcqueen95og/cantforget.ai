@@ -9,11 +9,11 @@ everything is stored in a small file on your machine.
 
 ## What it does
 
-- **See who is in the room.** Open the app, click **Start Camera**, and faces are
+- **See who is in the room.** Open the app, allow camera access, and faces are
   outlined on the video with a label. Someone who has been registered before is
   greeted by name; a new face is marked "New face".
-- **Hear what people say.** Click **Start Mic** and every sentence that is spoken
-  is typed out live in the Conversation panel (speech-to-text).
+- **Hear what people say.** Allow microphone access and every sentence that is
+  spoken is typed out live in the Conversation panel (speech-to-text).
 - **Know who said what.** The app can tell different voices apart and shows a
   speaker label next to each sentence, so the transcript reads like "who said this line".
 - **Introduce someone just by talking.** If someone says *"hey, I'm Mary, I'm your
@@ -23,6 +23,18 @@ everything is stored in a small file on your machine.
   3. creates a person in its memory with the name, the relationship, and the snapshot,
   4. remembers their voice too.
   From the next conversation onwards, both their face and their voice are recognised.
+- **Remember each person, fact by fact.** Everything someone states about
+  themselves ("I'm a mathematician", "I'm the son of Watkins", "I live in
+  Delhi") is remembered as a small fact. The person's description on the
+  video and in the People tab grows as a list of these facts with every
+  conversation, across sessions:
+  ```
+  Rahul
+  - He is Rahul
+  - He is a mathematician
+  - Son of Watkins
+  - He lives in Delhi
+  ```
 - **Remember what was talked about.** While you chat, the app quietly writes a few
   short, gentle key points per person (for example: *"Mary is coming for dinner."*).
   These are saved with the person, so you can read them back later.
@@ -64,12 +76,19 @@ cantforget.ai/
 ├── frontend/                 # the web page you interact with
 │   ├── index.html
 │   ├── css/main.css
-│   └── js/                   # camera, mic, transcript, people list...
+│   └── js/                   # camera, mic, transcript, people list, welcome tour...
 ├── data/
-│   ├── forgetmenot.db        # everything the app remembers lives here
+│   ├── cantforget.db         # everything the app remembers lives here
 │   └── models/               # the "brains": small AI model files (see Quick start)
+├── scripts/
+│   ├── install.sh            # one-command installer for Linux
+│   ├── install.ps1           # one-command installer for Windows
+│   └── benchmark_models.py   # helper for measuring model speed
 └── tests/                    # checks that the code still works
 ```
+
+For a deep technical tour (how the pipelines work, the data model, every
+library), see [`DEV_README.md`](DEV_README.md).
 
 ## Quick start
 
@@ -79,7 +98,34 @@ You need three things, all free:
 2. A webcam and a microphone
 3. The Chrome, Edge or Firefox browser
 
-### 1. Get the project files
+### Easy install (recommended)
+
+**IMPORTANT**: Clone this repository, then continue with the steps
+
+**Linux (Ubuntu/Mint/Debian):** open a terminal in the repository folder and run:
+```bash
+bash scripts/install.sh
+```
+
+**Windows:** open PowerShell in the project folder and run:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+Internet is needed once, for the downloads. After it finishes, start the app:
+
+```bash
+# Linux
+python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+
+# Windows (PowerShell)
+.\.venv\Scripts\python.exe -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+```
+
+…then open <http://127.0.0.1:8000/> and follow the tutorial on screen.
+(The manual steps below do the same thing, one step at a time.)
+
+### Manual Installation
 
 If you have the project folder already, open it. Otherwise download/unzip it and
 open a terminal in that folder.
@@ -87,7 +133,7 @@ open a terminal in that folder.
 **Linux (Ubuntu/Mint/Debian):** press `Ctrl+Alt+T` to open a terminal.
 **Windows:** press the Start button, type `PowerShell`, and open Windows PowerShell.
 
-### 2. Make a private Python folder (a "virtual environment")
+### 1. Make a private Python folder (a "virtual environment")
 
 This keeps the app's Python parts separate from the rest of your system.
 
@@ -105,7 +151,7 @@ python -m venv .venv
 
 When it works, you will see `(.venv)` at the start of the line.
 
-### 3. Install the pieces
+### 2. Install the pieces
 
 **Linux and Windows (same command):**
 ```bash
@@ -116,7 +162,7 @@ On some Linux systems (for example Arch), you may first need to install `portaud
 headers or use the venv as shown above — the venv approach is the simplest and is
 what we recommend.
 
-### 4. Download the small AI model files
+### 3. Download the small AI model files
 
 The app needs a few free model files (a few MB each) in the `data/models/` folder.
 Download these four links and save them with the shown file names:
@@ -148,7 +194,7 @@ https://huggingface.co/google/flan-t5-small (all model files)
 The speech-to-text model (Whisper "tiny") is downloaded automatically the first
 time you use the microphone — no action needed.
 
-### 5. Start the app
+### 4. Start the app
 
 **Linux and Windows (same command):**
 ```bash
@@ -157,18 +203,21 @@ python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
 
 Keep this window open — it is the app running.
 
-### 6. Open the app in your browser
+### 5. Open the app in your browser
 
-Visit <http://127.0.0.1:8000/> and:
+Visit <http://127.0.0.1:8000/>. A short friendly tutorial (with a **Skip**
+button) explains the app the first time. Then:
 
-1. Click **Start Camera** and allow camera access.
-2. Click **Start Mic** and allow microphone access.
+1. Click the **camera icon** (bottom of the video) and allow camera access.
+   The icon turns blue while the camera is on.
+2. Click the **microphone icon** and allow microphone access.
 3. Talk! Sentences appear in the Conversation panel with a speaker label.
 4. Say *"hey, I'm [your name], I'm your [relationship]"* — watch the People tab:
    a new person appears with your name, your relationship, and your snapshot.
-5. When you stop the mic, key points are written to the Key points panel.
+5. When you stop the mic (click the icon again), key points are written to the
+   Key points panel. You can re-open the tutorial any time with the **?** button.
 
-### 7. Try the built-in checks (optional)
+### 6. Try the built-in checks (optional)
 
 ```bash
 pip install -r requirements-dev.txt
@@ -211,19 +260,23 @@ If you want to tweak how the app behaves, set these before starting the server
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `MATCH_THRESHOLD` | 0.45 | How strict the face match must be before a name is shown |
-| `WHISPER_MODEL` | base | Speech-to-text quality: `tiny` (fastest) → `base` → `small` (best, needs a better PC) |
-| `WHISPER_LANGUAGE` | en | Leave empty to auto-detect the spoken language, or set e.g. `en`, `de` |
+| `WHISPER_MODEL` | tiny | Speech-to-text quality: `tiny` (fastest, proven on 2-core CPUs) → `base` → `small` (best, needs a better PC) |
+| `WHISPER_LANGUAGE` | *(auto-detect)* | Leave empty to auto-detect the spoken language, or set e.g. `en`, `de` — only force one if every user speaks it |
+| `WHISPER_CPU_THREADS` | 2 | CPU threads for speech-to-text; keep at 2 on 2-core machines so the camera stays responsive |
 | `DIARIZATION_THRESHOLD` | 0.5 | How different two voices must be to count as two people |
 | `SUMMARIZER_USE_MODEL` | 0 | `0` = simple instant key points; `1` = use a downloaded AI summariser |
-| `DB_PATH` | data/forgetmenot.db | Where the memory file lives |
+| `DB_PATH` | data/cantforget.db | Where the memory file lives |
 
 ## Performance notes
 
 Everything is designed to run on an ordinary desktop or laptop (even an older
 i3 with 8 GB of RAM). The camera loop is throttled to keep the CPU cool, and the
-speech-to-text model is the smallest fast one by default. If speech recognition
-feels slow, let it be — it catches up in the background; or upgrade `WHISPER_MODEL`
-only if your PC has room to spare.
+speech-to-text model is the smallest fast one by default, using greedy decoding
+(no beam search) and 2 CPU threads so half the machine stays free for the
+camera. Face detection also runs in a background worker thread, so the video
+overlay keeps moving even while a sentence is being transcribed. If speech
+recognition feels slow, let it be — it catches up in the background; or upgrade
+`WHISPER_MODEL` only if your PC has room to spare.
 
 ## Privacy
 
@@ -232,7 +285,7 @@ Everything runs on your machine and nothing is sent to the internet:
 - Camera frames are processed in memory and never saved.
 - What is saved: a small photo you consented to, a list of numbers describing
   each face and voice (these cannot be turned back into a picture or audio),
-  and the conversation notes — all inside `data/forgetmenot.db`.
+  and the conversation notes — all inside `data/cantforget.db`.
 - Deleting a person removes every piece of their data.
 - The app only listens and watches while you press the Start buttons and the
   browser shows the permission prompt.

@@ -155,6 +155,23 @@ function wrapText(text, maxW, maxLines) {
   return lines.slice(0, maxLines);
 }
 
+/**
+ * Wrap a description that is a bullet LIST (one fact per line) — each
+ * bullet keeps its own line instead of flowing into one paragraph.
+ */
+function wrapFactLines(description, maxW, maxLines) {
+  const out = [];
+  for (const para of String(description).split(/\n+/)) {
+    const bullet = para.trim();
+    if (!bullet) continue;
+    for (const line of wrapText(bullet, maxW, 2)) {
+      out.push(line);
+      if (out.length >= maxLines) return out;
+    }
+  }
+  return out;
+}
+
 // What to show on the card. Only a confident match shows a name and profile;
 // temporary track IDs are never shown: they are not identities.
 function describe(identity) {
@@ -189,7 +206,9 @@ function drawPersonCard(fx, fy, fw, fh, identity, alpha) {
   let descLines = [];
   if (description) {
     ctx.font = DESC_FONT;
-    descLines = wrapText(description, textW, 3);
+    // The description is a list of facts ("- He is a mathematician");
+    // render each bullet on its own line, capped to keep the card small.
+    descLines = wrapFactLines(description, textW, 6);
   }
 
   const headerH = 26;

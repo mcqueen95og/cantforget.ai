@@ -4,13 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>cantforget.ai — Face &amp; Voice</title>
-  <link rel="stylesheet" href="/static/css/main.css?v=14" />
+  <link rel="stylesheet" href="/static/css/main.css?v=16" />
 </head>
 <body>
   <!-- Full-page camera feed -->
   <div class="feed">
     <video id="localVideo" autoplay playsinline muted></video>
     <canvas id="overlayCanvas" class="overlay"></canvas>
+    <div id="cameraOffOverlay" class="camera-off-overlay">
+      <span>Your camera is turned off</span>
+    </div>
     <div id="errorBox" class="error-box hidden"></div>
   </div>
 
@@ -114,7 +117,7 @@
   </div>
 
   <script type="module" src="/static/js/welcome.js?v=2"></script>
-  <script type="module" src="/static/js/app.js?v=13"></script>
+  <script type="module" src="/static/js/app.js?v=16"></script>
   <script type="module" src="/static/js/audio.js?v=6"></script>
   <script type="module" src="/static/js/conversation.js?v=10"></script>
   <script type="module" src="/static/js/conversation-intelligence.js?v=3"></script>

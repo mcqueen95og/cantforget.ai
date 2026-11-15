@@ -27,6 +27,8 @@ from ..config import (
     WHISPER_COMPUTE_TYPE,
     WHISPER_LANGUAGE,
     WHISPER_CPU_THREADS,
+    DESCRIPTION_MAX_FACTS,
+    DESCRIPTION_MAX_CHARS,
     DIARIZATION_MAX_SPEAKERS,
     DIARIZATION_MIN_SEGMENT_MS,
     DIARIZATION_THRESHOLD,
@@ -48,6 +50,7 @@ from .summarize import (
     PersonDescriptionWriter,
     extract_person_intro,
     join_utterances,
+    render_description,
 )
 from ..db import PeopleDB, EMBEDDING_DIM
 
@@ -765,7 +768,7 @@ class AudioPipeline:
                     person = self.db.create_person_provisional(
                         name=name,
                         tag=relationship,
-                        description=f"Introduced by voice: \"{text}\"",
+                        description="",  # filled by the fact ledger right after
                         thumbnail=face_crop,
                     )
                     person_uid = person["uid"]
@@ -843,6 +846,13 @@ class AudioPipeline:
                     )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Failed to attach late role: %s", exc)
+
+        # --- Learn stated facts ---
+        # Every sentence a linked person says about themselves ("I'm a
+        # mathematician") is checked for self-claims; new ones extend the
+        # person's cumulative fact ledger and refresh their description.
+        if identity_uid and text:
+            await self._learn_facts_for_person(identity_uid, [text], use_model=False)
 
         # --- Persist ---
         seg_id = None
@@ -1089,45 +1099,90 @@ class AudioPipeline:
                 self.session_id, speaker_id, len(points), model_version,
             )
 
-            # Keep the person's profile description in step with the
-            # conversation: rewrite "Introduced by voice: ..." style text
-            # with what they actually talked about.
+            # Grow the person's profile description from what they said.
             if identity_uid:
-                await self._refresh_person_description(identity_uid)
+                await self._learn_facts_for_person(
+                    identity_uid, [s.get("text") or "" for s in segs], use_model=True
+                )
 
-    async def _refresh_person_description(self, uid: str) -> None:
-        """Rewrite a person's description from their session key points."""
-        if not uid or self._desc_writer is None:
-            return
-        # Collect this person's points from every label they were known by
-        # during the session: their uid, and any temporary speaker label
-        # that was later linked to them (the link may have happened after
-        # some points were already emitted).
-        points_by_text: dict[str, str] = {}
-        for key, seen in self._summary_seen.items():
-            if key != uid:
-                linked = self.db.get_speaker_identity(self.session_id, key)
-                if linked != uid:
-                    continue
-            for p in seen:
-                points_by_text.setdefault(p, p)
-        points = list(points_by_text.values())[-3:]
-        if not points:
+    @staticmethod
+    def _person_pronoun(person: dict) -> str:
+        """Pick "He"/"She" from the relationship tag, defaulting to He."""
+        tag = (person.get("tag") or "").lower()
+        female = (
+            "daughter", "wife", "mother", "mom", "mum", "sister",
+            "granddaughter", "grandmother", "grandma", "aunt", "auntie",
+            "niece", "girlfriend", "stepmother", "stepsister",
+            "daughterinlaw", "motherinlaw", "sisterinlaw",
+        )
+        if any(w in tag for w in female):
+            return "She"
+        return "He"
+
+    async def _learn_facts_for_person(
+        self, uid: str, texts: list[str], use_model: bool
+    ) -> None:
+        """Extract self-claims from ``texts`` and merge them into the ledger.
+
+        ``use_model=False`` (per-sentence path) runs only the fast
+        deterministic extractor. ``use_model=True`` (per-summary-batch path)
+        tries the local FLAN-T5 model first, with the extractor always
+        running as well. The description is refreshed only when a new fact
+        was actually added.
+        """
+        if not uid or not any(t for t in texts):
             return
         try:
             person = self.db.get_person(uid)
             if not person:
                 return
-            desc = await asyncio.to_thread(
-                self._desc_writer.write, person.get("name") or "", points
+            pronoun = self._person_pronoun(person)
+            known = self.db.list_person_facts(uid)
+            facts = await asyncio.to_thread(
+                self._desc_writer.write_facts,
+                person.get("name") or "",
+                texts,
+                known,
+                pronoun,
+                use_model,
             )
-            desc = (desc or "").strip()
+            added = False
+            for f in facts:
+                try:
+                    if self.db.add_person_fact(
+                        uid, f,
+                        source="model" if use_model else "claim",
+                        session_id=self.session_id,
+                    ):
+                        added = True
+                except Exception:  # noqa: BLE001
+                    logger.exception("Failed to store fact for %s: %r", uid, f)
+            if added:
+                await self._refresh_person_description(uid)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to learn facts for person %s", uid)
+
+    async def _refresh_person_description(self, uid: str) -> None:
+        """Regenerate a person's description from their cumulative facts."""
+        if not uid:
+            return
+        try:
+            person = self.db.get_person(uid)
+            if not person:
+                return
+            facts = self.db.list_person_facts(uid, limit=DESCRIPTION_MAX_FACTS)
+            if not facts:
+                return
+            desc = render_description(
+                facts, max_facts=DESCRIPTION_MAX_FACTS,
+                max_chars=DESCRIPTION_MAX_CHARS,
+            )
             if not desc or desc == (person.get("description") or "").strip():
                 return
             self.db.update_person(uid, person["name"], person.get("tag") or "", desc)
             logger.info(
                 "Pipeline: description for %s (%s) -> %r",
-                uid, person.get("name"), desc[:80],
+                uid, person.get("name"), desc.replace("\n", " | ")[:100],
             )
             # Reload the face-identity gallery so the on-video overlay and
             # the /api/faces/detect response show the new description.

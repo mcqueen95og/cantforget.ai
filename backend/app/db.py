@@ -164,6 +164,19 @@ CREATE TABLE IF NOT EXISTS participant_memories (
     updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_participant_memories_person ON participant_memories(participant_uid);
+
+-- Cumulative facts a person stated about themselves ("I'm a mathematician").
+-- The person's profile description is regenerated from these as bullet
+-- points, so it keeps growing with every conversation.
+CREATE TABLE IF NOT EXISTS person_facts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    person_uid TEXT NOT NULL REFERENCES persons(uid) ON DELETE CASCADE,
+    fact       TEXT NOT NULL,
+    source     TEXT NOT NULL DEFAULT 'claim',  -- 'model' | 'claim' | 'intro'
+    session_id TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_person_facts_person ON person_facts(person_uid);
 """
 
 
@@ -355,6 +368,63 @@ class PeopleDB:
             if cur.rowcount == 0:
                 raise KeyError(uid)
         return self.get_person(uid)  # type: ignore[return-value]
+
+    # --- cumulative person facts (description ledger) ---
+
+    def add_person_fact(
+        self,
+        person_uid: str,
+        fact: str,
+        source: str = "claim",
+        session_id: Optional[str] = None,
+    ) -> bool:
+        """Record one fact the person stated about themselves.
+
+        Exact duplicates (same person + same normalised fact) are ignored.
+        Returns True when a new fact row was inserted.
+        """
+        fact = " ".join((fact or "").split()).strip()
+        if not fact or len(fact) > MAX_DESCRIPTION:
+            return False
+        with self._lock:
+            existing = self._conn.execute(
+                "SELECT 1 FROM person_facts WHERE person_uid=? AND LOWER(fact)=LOWER(?) LIMIT 1",
+                (person_uid, fact),
+            ).fetchone()
+            if existing:
+                return False
+            self._conn.execute(
+                "INSERT INTO person_facts (person_uid, fact, source, session_id, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (person_uid, fact, source, session_id, _now()),
+            )
+            self._conn.commit()
+            return True
+
+    def list_person_facts(
+        self, person_uid: str, limit: Optional[int] = None
+    ) -> list[str]:
+        """Facts for a person, oldest first (limit keeps the most recent)."""
+        if limit is not None:
+            rows = self._conn.execute(
+                "SELECT fact FROM ("
+                "  SELECT id, fact FROM person_facts WHERE person_uid=?"
+                "  ORDER BY id DESC LIMIT ?"
+                ") ORDER BY id ASC",
+                (person_uid, int(limit)),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT fact FROM person_facts WHERE person_uid=? ORDER BY id ASC",
+                (person_uid,),
+            ).fetchall()
+        return [r[0] for r in rows]
+
+    def count_person_facts(self, person_uid: str) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM person_facts WHERE person_uid=?", (person_uid,)
+        ).fetchone()
+        return int(row[0]) if row else 0
 
     def delete_person(self, uid: str) -> bool:
         """Delete a person and (via cascade) all of their embeddings.

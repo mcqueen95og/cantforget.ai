@@ -58,14 +58,20 @@ VAD_MODEL_PATH = os.environ.get(
 SPEAKER_MODEL_PATH = os.environ.get(
     "SPEAKER_MODEL_PATH", str(MODELS_DIR / "speaker" / "eres2net.onnx")
 )
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")  # tiny | base | small
+# "tiny" is the proven default on this 2-core i3: base is ~2.5x slower and,
+# combined with the audio pipeline + face detection, starved the machine
+# (frozen face boxes, multi-minute transcription lag). Set WHISPER_MODEL=base
+# on faster hardware if you want the extra accuracy.
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "tiny")  # tiny | base | small
 # Optional fixed language (e.g. "en"). Empty = auto-detect per segment.
-# Defaults to English: auto-detect on short mic clips frequently picks the
-# wrong language and produces garbled text.
-WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "en").strip() or None
-# CPU threads for Whisper inference. More threads = faster transcription,
-# which reduces the lag between speech and its transcript appearing.
-WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", "4"))
+# Do NOT force a language here unless all users speak it: forcing "en" on
+# non-English speech yields garbled text that the confidence filters then
+# drop, so nothing ever appears in the transcript.
+WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "").strip() or None
+# CPU threads for Whisper inference. This machine has 2 cores / 4 threads;
+# leaving 2 threads for the face detector keeps /api/faces/detect responsive
+# (the overlay freezes when Whisper hogs every core).
+WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", "2"))
 WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.35"))
@@ -99,6 +105,14 @@ SUMMARIZER_USE_MODEL = os.environ.get("SUMMARIZER_USE_MODEL", "0") == "1"
 SUMMARY_MIN_SEGMENTS = int(os.environ.get("SUMMARY_MIN_SEGMENTS", "4"))
 SUMMARY_MAX_SEGMENTS = int(os.environ.get("SUMMARY_MAX_SEGMENTS", "12"))
 SUMMARY_MIN_SPAN_MS = int(os.environ.get("SUMMARY_MIN_SPAN_MS", "15000"))
+
+# --- Person description (cumulative fact ledger) ---
+# 1 = try the local FLAN-T5 model first when extracting facts from speech.
+# The deterministic claim extractor always runs as well (and as fallback),
+# so the description still grows when the model produces nothing usable.
+DESCRIPTION_USE_MODEL = os.environ.get("DESCRIPTION_USE_MODEL", "1") == "1"
+DESCRIPTION_MAX_FACTS = int(os.environ.get("DESCRIPTION_MAX_FACTS", "8"))
+DESCRIPTION_MAX_CHARS = int(os.environ.get("DESCRIPTION_MAX_CHARS", "460"))
 
 # --- Server ---
 HOST = os.environ.get("HOST", "127.0.0.1")

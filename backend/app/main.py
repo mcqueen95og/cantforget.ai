@@ -108,6 +108,8 @@ class Services:
 
 
 svc = Services()
+# Serialises the blocking face-detect/recognition work across requests.
+_detect_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -338,40 +340,47 @@ async def detect_faces(file: UploadFile = File(...)) -> JSONResponse:
     start = time.perf_counter()
     frame = await _read_image(file)
 
-    try:
-        raw = svc.detector.detect(frame)
-    except Exception:  # noqa: BLE001
-        logger.exception("Face detection failed")
-        raise HTTPException(status_code=500, detail="Detection error")
+    # The detector and recognizer are blocking ONNX calls. Run them in a
+    # worker thread so the event loop stays responsive for audio uploads,
+    # SSE and the transcription pipeline even while the CPU is busy.
+    # The lock serialises tracker/recogniser state across concurrent calls.
+    async with _detect_lock:
+        try:
+            raw = await asyncio.to_thread(svc.detector.detect, frame)
+        except Exception:  # noqa: BLE001
+            logger.exception("Face detection failed")
+            raise HTTPException(status_code=500, detail="Detection error")
 
-    dets = [d for d in raw if d["confidence"] >= YUNET_SCORE_THRESHOLD]
-    tracks = svc.tracker.update([(d["x"], d["y"], d["w"], d["h"]) for d in dets])
-
-    faces = []
-    for t in tracks:
-        if t["det_index"] is None:  # coasting track, not seen this frame
-            continue
-        d = dets[t["det_index"]]
-        faces.append(
-            {
-                "track_id": t["track_id"],
-                "x": d["x"],
-                "y": d["y"],
-                "w": d["w"],
-                "h": d["h"],
-                "confidence": d["confidence"],
-                "hits": t["hits"],
-                "age": t["age"],
-                "row": d["row"],
-            }
+        dets = [d for d in raw if d["confidence"] >= YUNET_SCORE_THRESHOLD]
+        tracks = await asyncio.to_thread(
+            svc.tracker.update, [(d["x"], d["y"], d["w"], d["h"]) for d in dets]
         )
 
-    identities: dict[int, dict] = {}
-    if svc.identity is not None:
-        try:
-            identities = svc.identity.process(frame, faces)
-        except Exception:  # noqa: BLE001 - recognition trouble must not stop detection
-            logger.exception("Recognition step failed")
+        faces = []
+        for t in tracks:
+            if t["det_index"] is None:  # coasting track, not seen this frame
+                continue
+            d = dets[t["det_index"]]
+            faces.append(
+                {
+                    "track_id": t["track_id"],
+                    "x": d["x"],
+                    "y": d["y"],
+                    "w": d["w"],
+                    "h": d["h"],
+                    "confidence": d["confidence"],
+                    "hits": t["hits"],
+                    "age": t["age"],
+                    "row": d["row"],
+                }
+            )
+
+        identities: dict[int, dict] = {}
+        if svc.identity is not None:
+            try:
+                identities = await asyncio.to_thread(svc.identity.process, frame, faces)
+            except Exception:  # noqa: BLE001 - recognition trouble must not stop detection
+                logger.exception("Recognition step failed")
 
     results = []
     for f in faces:

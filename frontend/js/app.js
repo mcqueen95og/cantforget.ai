@@ -4,7 +4,7 @@
  */
 
 import { startCamera, stopCamera, isCameraActive, showError, hideError, getVideoStream } from "./camera.js";
-import { bindVideo, updateTracks, draw, onResize, clearTracks } from "./face-overlay.js?v=2";
+import { bindVideo, updateTracks, draw, onResize, clearTracks } from "./face-overlay.js?v=4";
 import { startMic, stopMic, isMicRecording, hideMicError, getMicSessionId } from "./audio.js";
 import { startVoiceSession, stopVoiceSession, isVoiceConnected, summarizeSession } from "./conversation.js";
 import { initPeople } from "./people.js";
@@ -131,6 +131,9 @@ function refreshCameraButton() {
   const on = isCameraActive();
   cameraToggleBtn.classList.toggle("on", on);
   cameraToggleBtn.setAttribute("aria-label", on ? "Turn camera off" : "Turn camera on");
+  // Show the "camera off" message whenever the feed is not running.
+  const camOffEl = document.getElementById("cameraOffOverlay");
+  if (camOffEl) camOffEl.classList.toggle("hidden", on);
 }
 
 function refreshMicButton() {
@@ -199,8 +202,12 @@ if (cameraToggleBtn) {
 if (micToggleBtn) {
   micToggleBtn.addEventListener("click", async () => {
     if (isMicRecording()) {
-      const sid = getMicSessionId();
+      const sid = getMicSessionId();  // read BEFORE stopMic() — it clears the session id
       stopMic();
+      // Update the button immediately, before any awaits: the summarize /
+      // intelligence work below can take a long time on slow machines and
+      // the button must not stay "on" (blue) while it runs.
+      refreshMicButton();
       stopVoiceSession();
       endVoiceSession(sid);
       clearIntelligenceSession();
@@ -209,6 +216,8 @@ if (micToggleBtn) {
     } else {
       try {
         await startMic();
+        // Reflect the ON state as soon as the mic is running.
+        refreshMicButton();
         // Subscribe to transcription events for the SAME session the audio is sent to.
         const sid = getMicSessionId();
         if (sid) {
@@ -238,3 +247,5 @@ window.addEventListener("unhandledrejection", (ev) => {
 
 // Load the registered-people list so stored faces are visible.
 initPeople();
+// Reflect the initial camera-off state ("Your camera is turned off").
+refreshCameraButton();

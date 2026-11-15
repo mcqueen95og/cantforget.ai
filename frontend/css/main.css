@@ -41,6 +41,20 @@ html, body {
 
 .overlay { position: absolute; inset: 0; pointer-events: none; }
 
+/* "Your camera is turned off" — shown over the feed while the camera is off */
+.camera-off-overlay {
+  position: absolute; inset: 0; z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(18, 26, 36, 0.38);
+  color: #ffffff; text-align: center;
+  pointer-events: none;
+}
+.camera-off-overlay span {
+  background: rgba(18, 26, 36, 0.62);
+  padding: 0.55rem 1.2rem; border-radius: 14px;
+  font-size: 1.05rem; letter-spacing: 0.03em;
+}
+
 /* Brand — top left, quiet elegance */
 .brand {
   position: fixed; top: 1.1rem; left: 1.7rem; z-index: 30;
@@ -208,7 +222,7 @@ html, body {
 .thumb--empty { width: 52px; height: 52px; border-radius: 50%; background: var(--input-bg); border: 1px dashed var(--border); flex-shrink: 0; display: grid; place-items: center; font-size: 0.8rem; color: var(--muted); }
 .person-info { flex: 1; }
 .person-tag { font-size: 0.9rem; color: var(--muted); font-style: italic; }
-.person-desc { font-size: 0.9rem; color: var(--muted); }
+.person-desc { font-size: 0.9rem; color: var(--muted); white-space: pre-line; }
 .person-meta { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
 .person-actions { display: flex; gap: 0.4rem; margin-top: 0.45rem; }
 .btn--small { padding: 0.35rem 0.8rem; font-size: 0.85rem; }
